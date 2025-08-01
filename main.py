@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, redirect
 import requests
 import threading
 import time
@@ -14,8 +14,9 @@ sites = {
 
 status = {}
 history = {}
+start_time = time.time()
 
-# Initialize site data
+# Initialize history
 for name in sites:
     history[name] = {
         "current_status": "Unknown",
@@ -25,13 +26,11 @@ for name in sites:
         "last_checked": "Never"
     }
 
-# Time formatter
 def format_duration(seconds):
     mins, secs = divmod(int(seconds), 60)
     hrs, mins = divmod(mins, 60)
     return f"{hrs}h {mins}m {secs}s"
 
-# Background checker
 def check_sites():
     while True:
         for name, url in sites.items():
@@ -45,7 +44,6 @@ def check_sites():
             site_history = history[name]
             old_status = site_history["current_status"]
 
-            # Update total uptime/downtime
             if old_status != "Unknown" and new_status != old_status:
                 duration = current_time - site_history["last_change"]
                 if old_status == "Online":
@@ -58,21 +56,31 @@ def check_sites():
             site_history["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time))
             status[name] = new_status
 
-        time.sleep(10)  # check every 10 seconds
+        time.sleep(10)
 
 threading.Thread(target=check_sites, daemon=True).start()
 
 @app.route("/status")
 def get_status():
+    total_time = time.time() - start_time
     data = {}
     for name, info in history.items():
+        uptime_pct = (info["total_uptime"] / total_time) * 100 if total_time else 0
         data[name] = {
             "status": info["current_status"],
             "uptime": format_duration(info["total_uptime"]),
             "downtime": format_duration(info["total_downtime"]),
+            "uptime_percent": f"{uptime_pct:.2f}%",
             "last_checked": info["last_checked"]
         }
     return jsonify(data)
+
+@app.route("/badge/<site>")
+def badge(site):
+    if site in status:
+        color = "brightgreen" if status[site] == "Online" else "red"
+        return redirect(f"https://img.shields.io/badge/{site.replace(' ', '_')}-{status[site]}-{color}")
+    return "Site not found", 404
 
 @app.route("/")
 def home():
@@ -81,14 +89,16 @@ def home():
     <html lang="en">
     <head>
         <title>CoramTix Monitor</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="https://emoji.gg/assets/emoji/4071-monitoring.png" />
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-950 text-white font-sans">
         <div class="min-h-screen flex items-center justify-center px-4">
-            <div class="w-full max-w-3xl bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-700">
+            <div class="w-full max-w-4xl bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-700">
                 <h1 class="text-3xl font-bold text-center mb-6 text-indigo-400">🌐 CoramTix Uptime Monitor</h1>
                 <div id="data" class="space-y-4 text-lg text-white text-center">Loading...</div>
-                <p class="mt-6 text-sm text-gray-400 text-center">Auto updates every 10s</p>
+                <p class="mt-6 text-sm text-gray-400 text-center">🔄 Auto updates every 10s</p>
             </div>
         </div>
 
@@ -97,8 +107,10 @@ def home():
             const res = await fetch('/status');
             const json = await res.json();
             document.getElementById('data').innerHTML = Object.entries(json).map(([name, info]) => {
-                const statusIcon = info.status === "Online" ? "🟢" : "🔴";
-                return `<div class="bg-gray-800 rounded-xl p-4 shadow text-left">
+                const isOnline = info.status === "Online";
+                const bgColor = isOnline ? "bg-green-800/40" : "bg-red-800/40";
+                const statusIcon = isOnline ? "🟢" : "🔴";
+                return `<div class="${bgColor} rounded-xl p-4 shadow text-left border border-gray-700">
                     <div class="flex justify-between items-center">
                         <span class="font-semibold text-xl">${name}</span>
                         <span class="text-xl">${statusIcon} ${info.status}</span>
@@ -106,6 +118,7 @@ def home():
                     <div class="text-sm text-gray-300 mt-2">
                         <p>🟢 Uptime: ${info.uptime}</p>
                         <p>🔴 Downtime: ${info.downtime}</p>
+                        <p>📊 Uptime %: ${info.uptime_percent}</p>
                         <p>🕒 Last Checked: ${info.last_checked}</p>
                     </div>
                 </div>`;

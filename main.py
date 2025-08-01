@@ -40,14 +40,14 @@ def home():
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Uptime Monitor</title>
+        <title>CoramTix Uptime</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌐</text></svg>">
     </head>
     <body class="bg-gray-950 text-white font-sans">
         <div class="min-h-screen flex items-center justify-center px-4">
             <div class="w-full max-w-2xl bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-700">
-                <h1 class="text-3xl font-bold text-center mb-6 text-indigo-400">🌐 Uptime Monitor Dashboard</h1>
+                <h1 class="text-3xl font-bold text-center mb-6 text-indigo-400">🌐 CoramTix Uptime</h1>
                 <div id="data" class="space-y-4 text-lg text-white text-center">
                     Loading...
                 </div>

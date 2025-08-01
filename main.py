@@ -7,9 +7,9 @@ app = Flask(__name__)
 
 # List of sites to monitor
 sites = {
-    "Google": "https://www.google.com",
-    "GitHub": "https://github.com",
-    "My VPS": "http://your-vps-ip-or-domain"
+    "Game Panel": "https://gamep.cloudcrash.shop/",
+    "In Node": "https://ccin1.cloudcrash.shop/",
+    "Se Node": "http://your-vps-ip-or-domain"
 }
 
 status = {}

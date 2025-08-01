@@ -1,144 +1,183 @@
-from flask import Flask, jsonify, render_template_string, redirect
+import flask
+from flask import Flask, jsonify, render_template, redirect, g
 import requests
 import threading
 import time
+import sqlite3
+import yaml
+import os
+import logging
 
+# --- Basic Setup ---
 app = Flask(__name__)
+DATABASE = 'status.db'
+CONFIG_FILE = 'config.yaml'
 
-# Monitored sites
-sites = {
-    "Game Panel": "https://gamep.cloudcrash.shop/",
-    "In Node": "https://ccin1.cloudcrash.shop/",
-    "Se Node": "http://your-vps-ip-or-domain"
-}
+# --- Logging Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-status = {}
-history = {}
-start_time = time.time()
+# --- Load Configuration ---
+def load_config():
+    with open(CONFIG_FILE, 'r') as f:
+        return yaml.safe_load(f)
 
-# Initialize history data
-for name in sites:
-    history[name] = {
-        "current_status": "Unknown",
-        "last_change": time.time(),
-        "total_uptime": 0,
-        "total_downtime": 0,
-        "last_checked": "Never"
-    }
+config = load_config()
+SITES = {site['name']: site['url'] for site in config['sites']}
+CHECK_INTERVAL = config['check_interval']
 
-# Format seconds as H:M:S
+# --- Database Handling ---
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sites (
+                id INTEGER PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                status TEXT DEFAULT 'Unknown',
+                last_change REAL DEFAULT 0,
+                last_checked TEXT DEFAULT 'Never',
+                total_uptime REAL DEFAULT 0,
+                total_downtime REAL DEFAULT 0,
+                response_time_ms REAL DEFAULT -1
+            )
+        ''')
+        # Add new sites from config if they don't exist
+        for name, url in SITES.items():
+            cursor.execute("INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", (name, url, time.time()))
+        db.commit()
+
+# --- Helper Functions ---
 def format_duration(seconds):
-    mins, secs = divmod(int(seconds), 60)
-    hrs, mins = divmod(mins, 60)
+    seconds = int(seconds)
+    days, rem = divmod(seconds, 86400)
+    hrs, rem = divmod(rem, 3600)
+    mins, secs = divmod(rem, 60)
+    if days > 0:
+        return f"{days}d {hrs}h {mins}m"
     return f"{hrs}h {mins}m {secs}s"
 
-# Background site checker
+# --- Background Worker ---
 def check_sites():
+    logging.info("Background site checker thread started.")
     while True:
-        for name, url in sites.items():
-            current_time = time.time()
-            site_history = history[name]
+        with app.app_context():
+            db = get_db()
+            cursor = db.cursor()
+            sites_to_check = cursor.execute("SELECT * FROM sites").fetchall()
+            
+            for site in sites_to_check:
+                current_time = time.time()
+                name = site['name']
+                url = site['url']
+                
+                # --- Improved Uptime/Downtime Calculation ---
+                # 1. Calculate time since the last status change
+                duration_since_change = current_time - site['last_change']
+                
+                # 2. Add this duration to the correct counter based on the *current* status
+                if site['status'] == "Online":
+                    new_total_uptime = site['total_uptime'] + duration_since_change
+                    new_total_downtime = site['total_downtime']
+                elif site['status'] == "Down":
+                    new_total_downtime = site['total_downtime'] + duration_since_change
+                    new_total_uptime = site['total_uptime']
+                else: # 'Unknown' status
+                    new_total_uptime = site['total_uptime']
+                    new_total_downtime = site['total_downtime']
 
-            # Calculate duration since last check
-            duration = current_time - site_history["last_change"]
+                # 3. Perform the new check
+                try:
+                    res = requests.get(url, timeout=10)
+                    response_time = res.elapsed.total_seconds() * 1000  # in ms
+                    new_status = "Online" if 200 <= res.status_code < 300 else "Down"
+                except requests.exceptions.RequestException as e:
+                    logging.warning(f"Check failed for {name} ({url}): {e}")
+                    new_status = "Down"
+                    response_time = -1
 
-            # Fetch site status
-            try:
-                res = requests.get(url, timeout=5)
-                new_status = "Online" if res.status_code == 200 else "Down"
-            except:
-                new_status = "Down"
+                # 4. If status changed, update the 'last_change' time. Otherwise, it stays the same.
+                # We always update the total uptime/downtime counters.
+                new_last_change = current_time if new_status != site['status'] else site['last_change']
+                
+                # 5. Update DB
+                cursor.execute('''
+                    UPDATE sites
+                    SET status = ?, last_change = ?, last_checked = ?, 
+                        total_uptime = ?, total_downtime = ?, response_time_ms = ?
+                    WHERE name = ?
+                ''', (new_status, new_last_change, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
+                      new_total_uptime, new_total_downtime, response_time, name))
+            
+            db.commit()
+        time.sleep(CHECK_INTERVAL)
 
-            # Accumulate uptime/downtime
-            if site_history["current_status"] == "Online":
-                site_history["total_uptime"] += duration
-            elif site_history["current_status"] == "Down":
-                site_history["total_downtime"] += duration
-
-            site_history["last_change"] = current_time
-            site_history["current_status"] = new_status
-            site_history["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time))
-            status[name] = new_status
-
-        time.sleep(10)  # check interval
-
-# Run checker thread
-threading.Thread(target=check_sites, daemon=True).start()
-
-# JSON API
-@app.route("/status")
-def get_status():
-    total_time = time.time() - start_time
-    data = {}
-    for name, info in history.items():
-        uptime_pct = (info["total_uptime"] / total_time) * 100 if total_time else 0
-        data[name] = {
-            "status": info["current_status"],
-            "uptime": format_duration(info["total_uptime"]),
-            "downtime": format_duration(info["total_downtime"]),
-            "uptime_percent": f"{uptime_pct:.2f}%",
-            "last_checked": info["last_checked"]
-        }
-    return jsonify(data)
-
-# Badge endpoint
-@app.route("/badge/<site>")
-def badge(site):
-    if site in status:
-        color = "brightgreen" if status[site] == "Online" else "red"
-        return redirect(f"https://img.shields.io/badge/{site.replace(' ', '_')}-{status[site]}-{color}")
-    return "Site not found", 404
-
-# Web UI
+# --- Flask Routes ---
 @app.route("/")
 def home():
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <title>CoramTix Uptime Monitor</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="https://emoji.gg/assets/emoji/4071-monitoring.png" />
-        <script src="https://cdn.tailwindcss.com"></script>
-    </head>
-    <body class="bg-gray-950 text-white font-sans">
-        <div class="min-h-screen flex items-center justify-center px-4">
-            <div class="w-full max-w-4xl bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-700">
-                <h1 class="text-3xl font-bold text-center mb-6 text-indigo-400">🌐 CoramTix Uptime Monitor</h1>
-                <div id="data" class="space-y-4 text-lg text-white text-center">Loading...</div>
-                <p class="mt-6 text-sm text-gray-400 text-center">🔄 Auto updates every 10s</p>
-            </div>
-        </div>
+    return render_template("index.html")
 
-        <script>
-        async function updateStatus() {
-            const res = await fetch('/status');
-            const json = await res.json();
-            document.getElementById('data').innerHTML = Object.entries(json).map(([name, info]) => {
-                const isOnline = info.status === "Online";
-                const bgColor = isOnline ? "bg-green-800/40" : "bg-red-800/40";
-                const statusIcon = isOnline ? "🟢" : "🔴";
-                return `<div class="${bgColor} rounded-xl p-4 shadow text-left border border-gray-700">
-                    <div class="flex justify-between items-center">
-                        <span class="font-semibold text-xl">${name}</span>
-                        <span class="text-xl">${statusIcon} ${info.status}</span>
-                    </div>
-                    <div class="text-sm text-gray-300 mt-2">
-                        <p>🟢 Uptime: ${info.uptime}</p>
-                        <p>🔴 Downtime: ${info.downtime}</p>
-                        <p>📊 Uptime %: ${info.uptime_percent}</p>
-                        <p>🕒 Last Checked: ${info.last_checked}</p>
-                    </div>
-                </div>`;
-            }).join('');
+@app.route("/status")
+def get_status():
+    db = get_db()
+    cursor = db.cursor()
+    sites_data = cursor.execute("SELECT * FROM sites").fetchall()
+    
+    data = {"sites": {}}
+    all_operational = True
+    
+    for site in sites_data:
+        total_time = site['total_uptime'] + site['total_downtime']
+        uptime_pct = (site['total_uptime'] / total_time * 100) if total_time > 0 else 100
+        
+        if site['status'] != "Online":
+            all_operational = False
+            
+        data["sites"][site['name']] = {
+            "status": site['status'],
+            "uptime": format_duration(site['total_uptime']),
+            "downtime": format_duration(site['total_downtime']),
+            "uptime_percent": f"{uptime_pct:.3f}%",
+            "last_checked": site['last_checked'],
+            "response_time_ms": site['response_time_ms']
         }
+        
+    data["overall_status"] = "All systems operational" if all_operational else "Some systems are experiencing issues"
+    return jsonify(data)
 
-        setInterval(updateStatus, 10000);
-        updateStatus();
-        </script>
-    </body>
-    </html>
-    """)
+@app.route("/badge/<site_name>")
+def badge(site_name):
+    db = get_db()
+    cursor = db.cursor()
+    site = cursor.execute("SELECT status FROM sites WHERE name = ?", (site_name,)).fetchone()
+    
+    if site:
+        status = site['status']
+        color = "brightgreen" if status == "Online" else "red"
+        # Shields.io requires spaces to be replaced with underscores
+        label = site_name.replace(' ', '_')
+        return redirect(f"https://img.shields.io/badge/{label}-{status}-{color}", code=302)
+    
+    return "Site not found", 404
 
+# --- Main Execution ---
 if __name__ == "__main__":
+    init_db()  # Initialize the database and table on startup
+    # Start the background checker thread
+    threading.Thread(target=check_sites, daemon=True).start()
+    # Run the Flask app
     app.run(host="0.0.0.0", port=8080)

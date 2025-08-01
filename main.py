@@ -5,7 +5,7 @@ import time
 
 app = Flask(__name__)
 
-# Sites to monitor
+# Monitored sites
 sites = {
     "Game Panel": "https://gamep.cloudcrash.shop/",
     "In Node": "https://ccin1.cloudcrash.shop/",
@@ -16,7 +16,7 @@ status = {}
 history = {}
 start_time = time.time()
 
-# Initialize history
+# Initialize history data
 for name in sites:
     history[name] = {
         "current_status": "Unknown",
@@ -26,40 +26,46 @@ for name in sites:
         "last_checked": "Never"
     }
 
+# Format seconds as H:M:S
 def format_duration(seconds):
     mins, secs = divmod(int(seconds), 60)
     hrs, mins = divmod(mins, 60)
     return f"{hrs}h {mins}m {secs}s"
 
+# Background site checker
 def check_sites():
     while True:
         for name, url in sites.items():
             current_time = time.time()
+            site_history = history[name]
+
+            # Calculate duration since last check
+            duration = current_time - site_history["last_change"]
+
+            # Fetch site status
             try:
                 res = requests.get(url, timeout=5)
                 new_status = "Online" if res.status_code == 200 else "Down"
             except:
                 new_status = "Down"
 
-            site_history = history[name]
-            old_status = site_history["current_status"]
+            # Accumulate uptime/downtime
+            if site_history["current_status"] == "Online":
+                site_history["total_uptime"] += duration
+            elif site_history["current_status"] == "Down":
+                site_history["total_downtime"] += duration
 
-            if old_status != "Unknown" and new_status != old_status:
-                duration = current_time - site_history["last_change"]
-                if old_status == "Online":
-                    site_history["total_uptime"] += duration
-                else:
-                    site_history["total_downtime"] += duration
-                site_history["last_change"] = current_time
-
+            site_history["last_change"] = current_time
             site_history["current_status"] = new_status
             site_history["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time))
             status[name] = new_status
 
-        time.sleep(10)
+        time.sleep(10)  # check interval
 
+# Run checker thread
 threading.Thread(target=check_sites, daemon=True).start()
 
+# JSON API
 @app.route("/status")
 def get_status():
     total_time = time.time() - start_time
@@ -75,6 +81,7 @@ def get_status():
         }
     return jsonify(data)
 
+# Badge endpoint
 @app.route("/badge/<site>")
 def badge(site):
     if site in status:
@@ -82,13 +89,14 @@ def badge(site):
         return redirect(f"https://img.shields.io/badge/{site.replace(' ', '_')}-{status[site]}-{color}")
     return "Site not found", 404
 
+# Web UI
 @app.route("/")
 def home():
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <title>CoramTix Monitor</title>
+        <title>CoramTix Uptime Monitor</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="https://emoji.gg/assets/emoji/4071-monitoring.png" />
         <script src="https://cdn.tailwindcss.com"></script>

@@ -1,0 +1,13 @@
+# Check interval in seconds
+check_interval: 15
+
+# List of sites to monitor
+sites:
+  - name: "Game Panel"
+    url: "https://gamep.cloudcrash.shop/"
+  - name: "IN Node"
+    url: "https://ccin1.cloudcrash.shop/"
+  - name: "SE Node"
+    url: "http://your-vps-ip-or-domain"
+  - name: "Google"
+    url: "https://google.com"

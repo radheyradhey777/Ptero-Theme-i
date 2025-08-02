@@ -3,94 +3,370 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CoramTix System Status</title>
-    <link rel="icon" href="https://emoji.gg/assets/emoji/4071-monitoring.png" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>System Status Monitor</title>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        @import url('https://rsms.me/inter/inter.css');
-        .status-up { color: #22c55e; }
-        .status-down { color: #ef4444; }
-        .bg-up { background-color: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); }
-        .bg-down { background-color: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .status-overview {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .overall-status {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .status-operational {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .status-issues {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            color: #d63384;
+        }
+
+        .sites-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .site-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            border-left: 5px solid transparent;
+        }
+
+        .site-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+
+        .site-card.online {
+            border-left-color: #28a745;
+        }
+
+        .site-card.down {
+            border-left-color: #dc3545;
+        }
+
+        .site-card.unknown {
+            border-left-color: #ffc107;
+        }
+
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .site-name {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-down {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-unknown {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .site-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .uptime-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .uptime-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s ease;
+        }
+
+        .last-checked {
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-top: 15px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2rem;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            margin-top: 30px;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .sites-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .site-metrics {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200">
-    <div class="min-h-screen container mx-auto px-4 py-8">
-        
-        <header class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-white">CoramTix System Status</h1>
-            <p id="overall-status" class="text-xl mt-2 text-gray-400 transition-colors duration-500">
-                Loading status...
-            </p>
-        </header>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 System Status Monitor</h1>
+            <p>Real-time monitoring of system availability and performance</p>
+        </div>
 
-        <main id="services-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            </main>
-        
-        <footer class="text-center mt-10 text-gray-500 text-sm">
-            <p>Page automatically refreshes every 15 seconds.</p>
-            <p>Powered by a custom Flask monitoring solution.</p>
-        </footer>
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            Loading system status...
+        </div>
+
+        <div id="status-content" style="display: none;">
+            <div class="status-overview">
+                <div id="overall-status" class="overall-status">
+                    <!-- Overall status will be populated here -->
+                </div>
+            </div>
+
+            <div id="sites-container" class="sites-grid">
+                <!-- Site cards will be populated here -->
+            </div>
+        </div>
+
+        <div class="refresh-info">
+            <p>🔄 Auto-refreshes every 30 seconds</p>
+        </div>
     </div>
 
     <script>
-    function formatResponseTime(ms) {
-        if (ms === null || ms < 0) return 'N/A';
-        if (ms < 1000) return `${Math.round(ms)} ms`;
-        return `${(ms / 1000).toFixed(2)} s`;
-    }
+        let refreshInterval;
 
-    async function updateStatus() {
-        try {
-            const response = await fetch('/status');
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error('Error fetching status:', error);
+                showError();
             }
-            const data = await response.json();
-
-            // Update Overall Status
-            const overallStatusEl = document.getElementById('overall-status');
-            if (data.overall_status === "All systems operational") {
-                overallStatusEl.innerHTML = `<span class="status-up">✓ All systems operational</span>`;
-            } else {
-                overallStatusEl.innerHTML = `<span class="status-down">✗ Some systems are experiencing issues</span>`;
-            }
-
-            // Update Services Grid
-            const grid = document.getElementById('services-grid');
-            grid.innerHTML = Object.entries(data.sites).map(([name, info]) => {
-                const isOnline = info.status === "Online";
-                const statusClass = isOnline ? 'up' : 'down';
-                const statusIcon = isOnline ? '✓' : '✗';
-                
-                return `
-                <div class="bg-gray-800/50 border rounded-lg p-5 shadow-lg transition-all duration-300 hover:shadow-indigo-500/10 hover:border-gray-600 bg-${statusClass} border-l-4">
-                    <div class="flex justify-between items-center mb-3">
-                        <h2 class="text-xl font-semibold text-white">${name}</h2>
-                        <span class="font-bold text-lg status-${statusClass}">${statusIcon} ${info.status}</span>
-                    </div>
-                    <div class="text-sm space-y-2 text-gray-400">
-                        <div class="flex justify-between"><span>Uptime (90d)</span> <span class="font-mono text-gray-200">${info.uptime_percent}</span></div>
-                        <div class="flex justify-between"><span>Total Uptime</span> <span class="font-mono text-gray-200">${info.uptime}</span></div>
-                        <div class="flex justify-between"><span>Total Downtime</span> <span class="font-mono text-gray-200">${info.downtime}</span></div>
-                        <hr class="border-gray-700 my-2">
-                        <div class="flex justify-between"><span>Response Time</span> <span class="font-mono text-gray-200">${formatResponseTime(info.response_time_ms)}</span></div>
-                        <div class="flex justify-between"><span>Last Checked</span> <span class="font-mono text-gray-200">${info.last_checked}</span></div>
-                    </div>
-                    <div class="mt-4"><a href="/badge/${encodeURIComponent(name)}" target="_blank"><img src="/badge/${encodeURIComponent(name)}" alt="Status Badge"></a></div>
-                </div>
-                `;
-            }).join('');
-        } catch (error) {
-            console.error("Failed to fetch status:", error);
-            const overallStatusEl = document.getElementById('overall-status');
-            overallStatusEl.innerHTML = `<span class="status-down">Could not load status data.</span>`;
         }
-    }
 
-    setInterval(updateStatus, 15000); // Match this with your config check_interval
-    document.addEventListener('DOMContentLoaded', updateStatus);
+        function updateUI(data) {
+            // Hide loading and show content
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('status-content').style.display = 'block';
+
+            // Update overall status
+            const overallStatus = document.getElementById('overall-status');
+            overallStatus.textContent = data.overall_status;
+            overallStatus.className = 'overall-status ' + 
+                (data.overall_status.includes('operational') ? 'status-operational' : 'status-issues');
+
+            // Update sites
+            const sitesContainer = document.getElementById('sites-container');
+            sitesContainer.innerHTML = '';
+
+            for (const [name, site] of Object.entries(data.sites)) {
+                const siteCard = createSiteCard(name, site);
+                sitesContainer.appendChild(siteCard);
+            }
+        }
+
+        function createSiteCard(name, site) {
+            const card = document.createElement('div');
+            card.className = `site-card ${site.status.toLowerCase()}`;
+
+            const uptimePercent = parseFloat(site.uptime_percent);
+            const responseTime = site.response_time_ms >= 0 ? 
+                `${Math.round(site.response_time_ms)}ms` : 'N/A';
+
+            card.innerHTML = `
+                <div class="site-header">
+                    <div class="site-name">${name}</div>
+                    <div class="status-badge status-${site.status.toLowerCase()}">
+                        ${site.status}
+                    </div>
+                </div>
+                
+                <div class="uptime-bar">
+                    <div class="uptime-fill" style="width: ${uptimePercent}%"></div>
+                </div>
+                
+                <div class="site-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value">${site.uptime_percent}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Response Time</div>
+                        <div class="metric-value">${responseTime}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Total Uptime</div>
+                        <div class="metric-value">${site.uptime}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Total Downtime</div>
+                        <div class="metric-value">${site.downtime}</div>
+                    </div>
+                </div>
+                
+                <div class="last-checked">
+                    Last checked: ${site.last_checked}
+                </div>
+            `;
+
+            return card;
+        }
+
+        function showError() {
+            document.getElementById('loading').innerHTML = `
+                <div class="spinner" style="border-top-color: #dc3545;"></div>
+                <p style="color: #dc3545;">Error loading status data. Retrying...</p>
+            `;
+        }
+
+        function startAutoRefresh() {
+            // Clear existing interval if any
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            
+            // Set up auto-refresh every 30 seconds
+            refreshInterval = setInterval(fetchStatus, 30000);
+        }
+
+        // Initial load
+        fetchStatus().then(() => {
+            startAutoRefresh();
+        });
+
+        // Refresh when page becomes visible again
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                fetchStatus();
+            }
+        });
     </script>
 </body>
 </html>

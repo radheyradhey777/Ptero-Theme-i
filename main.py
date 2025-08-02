@@ -1,5 +1,5 @@
 import flask
-from flask import Flask, jsonify, render_template, redirect, g
+from flask import Flask, jsonify, render_template, g
 import requests
 import threading
 import time
@@ -7,13 +7,12 @@ import sqlite3
 import yaml
 import os
 import logging
+from datetime import datetime, timedelta
 
 # --- Basic Setup ---
 app = Flask(__name__)
-DATABASE = 'status.db'
+DATABASE = 'status_dashboard.db'
 CONFIG_FILE = 'config.yaml'
-
-# --- Logging Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Load Configuration ---
@@ -24,6 +23,7 @@ def load_config():
 config = load_config()
 SITES = {site['name']: site['url'] for site in config['sites']}
 CHECK_INTERVAL = config['check_interval']
+HISTORY_SEGMENTS = config['history_segments']
 
 # --- Database Handling ---
 def get_db():
@@ -43,87 +43,64 @@ def init_db():
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
+        # Main table for aggregate data
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sites (
                 id INTEGER PRIMARY KEY,
                 name TEXT UNIQUE NOT NULL,
-                url TEXT NOT NULL,
-                status TEXT DEFAULT 'Unknown',
-                last_change REAL DEFAULT 0,
-                last_checked TEXT DEFAULT 'Never',
-                total_uptime REAL DEFAULT 0,
-                total_downtime REAL DEFAULT 0,
-                response_time_ms REAL DEFAULT -1
+                url TEXT NOT NULL
             )
         ''')
-        # Add new sites from config if they don't exist
+        # History table for individual checks
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS check_history (
+                id INTEGER PRIMARY KEY,
+                site_id INTEGER,
+                status TEXT NOT NULL,
+                response_time_ms REAL,
+                timestamp REAL NOT NULL,
+                FOREIGN KEY (site_id) REFERENCES sites (id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_history_site_id_timestamp ON check_history (site_id, timestamp DESC)')
+        
+        # Add sites from config if they don't exist
         for name, url in SITES.items():
-            cursor.execute("INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", (name, url, time.time()))
+            cursor.execute("INSERT OR IGNORE INTO sites (name, url) VALUES (?, ?)", (name, url))
         db.commit()
-
-# --- Helper Functions ---
-def format_duration(seconds):
-    seconds = int(seconds)
-    days, rem = divmod(seconds, 86400)
-    hrs, rem = divmod(rem, 3600)
-    mins, secs = divmod(rem, 60)
-    if days > 0:
-        return f"{days}d {hrs}h {mins}m"
-    return f"{hrs}h {mins}m {secs}s"
+        logging.info("Database initialized successfully.")
 
 # --- Background Worker ---
-def check_sites():
-    logging.info("Background site checker thread started.")
+def check_sites_worker():
+    logging.info(f"Background worker started. Checking sites every {CHECK_INTERVAL} seconds.")
     while True:
         with app.app_context():
             db = get_db()
-            cursor = db.cursor()
-            sites_to_check = cursor.execute("SELECT * FROM sites").fetchall()
+            sites_to_check = db.execute("SELECT * FROM sites").fetchall()
             
             for site in sites_to_check:
-                current_time = time.time()
-                name = site['name']
-                url = site['url']
-                
-                # --- Improved Uptime/Downtime Calculation ---
-                # 1. Calculate time since the last status change
-                duration_since_change = current_time - site['last_change']
-                
-                # 2. Add this duration to the correct counter based on the *current* status
-                if site['status'] == "Online":
-                    new_total_uptime = site['total_uptime'] + duration_since_change
-                    new_total_downtime = site['total_downtime']
-                elif site['status'] == "Down":
-                    new_total_downtime = site['total_downtime'] + duration_since_change
-                    new_total_uptime = site['total_uptime']
-                else: # 'Unknown' status
-                    new_total_uptime = site['total_uptime']
-                    new_total_downtime = site['total_downtime']
-
-                # 3. Perform the new check
+                status = "Unknown"
+                response_time = -1
                 try:
-                    res = requests.get(url, timeout=10)
-                    response_time = res.elapsed.total_seconds() * 1000  # in ms
-                    new_status = "Online" if 200 <= res.status_code < 300 else "Down"
+                    res = requests.get(site['url'], timeout=10)
+                    response_time = res.elapsed.total_seconds() * 1000
+                    status = "Online" if 200 <= res.status_code < 400 else "Down"
                 except requests.exceptions.RequestException as e:
-                    logging.warning(f"Check failed for {name} ({url}): {e}")
-                    new_status = "Down"
-                    response_time = -1
-
-                # 4. If status changed, update the 'last_change' time. Otherwise, it stays the same.
-                # We always update the total uptime/downtime counters.
-                new_last_change = current_time if new_status != site['status'] else site['last_change']
+                    status = "Down"
+                    logging.warning(f"Check failed for {site['name']}: {e}")
                 
-                # 5. Update DB
-                cursor.execute('''
-                    UPDATE sites
-                    SET status = ?, last_change = ?, last_checked = ?, 
-                        total_uptime = ?, total_downtime = ?, response_time_ms = ?
-                    WHERE name = ?
-                ''', (new_status, new_last_change, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
-                      new_total_uptime, new_total_downtime, response_time, name))
+                # Insert new check into history
+                db.execute(
+                    "INSERT INTO check_history (site_id, status, response_time_ms, timestamp) VALUES (?, ?, ?, ?)",
+                    (site['id'], status, response_time, time.time())
+                )
             
+            # Clean up old history data (older than 90 days)
+            ninety_days_ago = time.time() - (90 * 24 * 60 * 60)
+            db.execute("DELETE FROM check_history WHERE timestamp < ?", (ninety_days_ago,))
             db.commit()
+            logging.info("Finished checking all sites.")
+        
         time.sleep(CHECK_INTERVAL)
 
 # --- Flask Routes ---
@@ -132,52 +109,52 @@ def home():
     return render_template("index.html")
 
 @app.route("/status")
-def get_status():
+def get_status_api():
     db = get_db()
-    cursor = db.cursor()
-    sites_data = cursor.execute("SELECT * FROM sites").fetchall()
+    sites_data = db.execute("SELECT * FROM sites").fetchall()
     
-    data = {"sites": {}}
+    response_data = {"sites": []}
     all_operational = True
     
+    ninety_days_ago = time.time() - (90 * 24 * 60 * 60)
+    
     for site in sites_data:
-        total_time = site['total_uptime'] + site['total_downtime']
-        uptime_pct = (site['total_uptime'] / total_time * 100) if total_time > 0 else 100
+        # Get uptime percentage for the last 90 days
+        uptime_checks = db.execute(
+            "SELECT COUNT(*) FROM check_history WHERE site_id = ? AND status = 'Online' AND timestamp > ?",
+            (site['id'], ninety_days_ago)
+        ).fetchone()[0]
+        total_checks = db.execute(
+            "SELECT COUNT(*) FROM check_history WHERE site_id = ? AND timestamp > ?",
+            (site['id'], ninety_days_ago)
+        ).fetchone()[0]
+        uptime_percent_90d = f"{(uptime_checks / total_checks * 100):.2f}%" if total_checks > 0 else "100.00%"
         
-        if site['status'] != "Online":
-            all_operational = False
-            
-        data["sites"][site['name']] = {
-            "status": site['status'],
-            "uptime": format_duration(site['total_uptime']),
-            "downtime": format_duration(site['total_downtime']),
-            "uptime_percent": f"{uptime_pct:.3f}%",
-            "last_checked": site['last_checked'],
-            "response_time_ms": site['response_time_ms']
-        }
+        # Get the most recent N checks for the history bar
+        history = db.execute(
+            "SELECT status, timestamp FROM check_history WHERE site_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (site['id'], HISTORY_SEGMENTS)
+        ).fetchall()
         
-    data["overall_status"] = "All systems operational" if all_operational else "Some systems are experiencing issues"
-    return jsonify(data)
+        # Reverse history to show oldest first (left-to-right)
+        history_list = [dict(row) for row in reversed(history)]
 
-@app.route("/badge/<site_name>")
-def badge(site_name):
-    db = get_db()
-    cursor = db.cursor()
-    site = cursor.execute("SELECT status FROM sites WHERE name = ?", (site_name,)).fetchone()
+        if history and history[0]['status'] != 'Online':
+             all_operational = False
+        
+        response_data["sites"].append({
+            "name": site['name'],
+            "uptime_percent_90d": uptime_percent_90d,
+            "history": history_list
+        })
+        
+    response_data["overall_status"] = "All systems operational." if all_operational else "Some systems are experiencing issues."
     
-    if site:
-        status = site['status']
-        color = "brightgreen" if status == "Online" else "red"
-        # Shields.io requires spaces to be replaced with underscores
-        label = site_name.replace(' ', '_')
-        return redirect(f"https://img.shields.io/badge/{label}-{status}-{color}", code=302)
-    
-    return "Site not found", 404
+    return jsonify(response_data)
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    init_db()  # Initialize the database and table on startup
-    # Start the background checker thread
-    threading.Thread(target=check_sites, daemon=True).start()
-    # Run the Flask app
+    init_db()
+    threading.Thread(target=check_sites_worker, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)

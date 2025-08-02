@@ -18,6 +18,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- Load Configuration ---
 def load_config():
+    # Create a default config if it doesn't exist
+    if not os.path.exists(CONFIG_FILE):
+        default_config = {
+            'check_interval': 60,
+            'sites': [
+                {'name': 'Google', 'url': 'https://www.google.com'},
+                {'name': 'GitHub', 'url': 'https://www.github.com'}
+            ]
+        }
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(default_config, f)
+        logging.info(f"Created default configuration file: {CONFIG_FILE}")
+    
     with open(CONFIG_FILE, 'r') as f:
         return yaml.safe_load(f)
 
@@ -84,21 +97,24 @@ def check_sites():
                 current_time = time.time()
                 name = site['name']
                 url = site['url']
+                previous_status = site['status']
                 
-                # --- Improved Uptime/Downtime Calculation ---
-                # 1. Calculate time since the last status change
-                duration_since_change = current_time - site['last_change']
+                # --- Corrected Uptime/Downtime Calculation ---
+                # 1. Calculate the time elapsed since the *last check*.
+                # We use 'last_change' as the timestamp of the last check.
+                time_since_last_check = current_time - site['last_change']
                 
-                # 2. Add this duration to the correct counter based on the *current* status
-                if site['status'] == "Online":
-                    new_total_uptime = site['total_uptime'] + duration_since_change
-                    new_total_downtime = site['total_downtime']
-                elif site['status'] == "Down":
-                    new_total_downtime = site['total_downtime'] + duration_since_change
-                    new_total_uptime = site['total_uptime']
-                else: # 'Unknown' status
-                    new_total_uptime = site['total_uptime']
-                    new_total_downtime = site['total_downtime']
+                # Initialize new totals with existing values
+                new_total_uptime = site['total_uptime']
+                new_total_downtime = site['total_downtime']
+
+                # 2. Add the elapsed time to the correct counter based on the status *during that interval*.
+                if previous_status == "Online":
+                    new_total_uptime += time_since_last_check
+                elif previous_status == "Down":
+                    new_total_downtime += time_since_last_check
+                # If status was 'Unknown', we don't add the time to any counter yet.
+                # The first check of a site will have 0 uptime/downtime. This is acceptable.
 
                 # 3. Perform the new check
                 try:
@@ -110,17 +126,13 @@ def check_sites():
                     new_status = "Down"
                     response_time = -1
 
-                # 4. If status changed, update the 'last_change' time. Otherwise, it stays the same.
-                # We always update the total uptime/downtime counters.
-                new_last_change = current_time if new_status != site['status'] else site['last_change']
-                
-                # 5. Update DB
+                # 4. Update the DB. We always update the last_change timestamp to the current_time.
                 cursor.execute('''
                     UPDATE sites
                     SET status = ?, last_change = ?, last_checked = ?, 
                         total_uptime = ?, total_downtime = ?, response_time_ms = ?
                     WHERE name = ?
-                ''', (new_status, new_last_change, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
+                ''', (new_status, current_time, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
                       new_total_uptime, new_total_downtime, response_time, name))
             
             db.commit()
@@ -129,7 +141,64 @@ def check_sites():
 # --- Flask Routes ---
 @app.route("/")
 def home():
-    return render_template("index.html")
+    # A simple default template if index.html is missing
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>System Status</title>
+        <style>
+            body { font-family: sans-serif; }
+            .container { max-width: 800px; margin: auto; padding: 20px; }
+            .site { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+            .status-Online { border-left: 5px solid green; }
+            .status-Down { border-left: 5px solid red; }
+            .status-Unknown { border-left: 5px solid gray; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>System Status</h1>
+            <h2 id="overall-status">Loading...</h2>
+            <div id="sites-container"></div>
+        </div>
+        <script>
+            function updateStatus() {
+                fetch('/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('overall-status').textContent = data.overall_status;
+                        const container = document.getElementById('sites-container');
+                        container.innerHTML = '';
+                        for (const name in data.sites) {
+                            const site = data.sites[name];
+                            const siteDiv = document.createElement('div');
+                            siteDiv.className = 'site status-' + site.status;
+                            siteDiv.innerHTML = `
+                                <h3>${name} - <span style="color:${site.status === 'Online' ? 'green' : 'red'}">${site.status}</span></h3>
+                                <p><strong>Uptime (90d):</strong> ${site.uptime_percent}</p>
+                                <p><strong>Total Uptime:</strong> ${site.uptime}</p>
+                                <p><strong>Total Downtime:</strong> ${site.downtime}</p>
+                                <p><strong>Response Time:</strong> ${site.response_time_ms > 0 ? site.response_time_ms.toFixed(2) + ' ms' : 'N/A'}</p>
+                                <p><em>Last Checked: ${site.last_checked}</em></p>
+                            `;
+                            container.appendChild(siteDiv);
+                        }
+                    });
+            }
+            setInterval(updateStatus, 5000); // Refresh every 5 seconds
+            updateStatus(); // Initial load
+        </script>
+    </body>
+    </html>
+    """
+    # Check for template file, otherwise use the string above
+    if os.path.exists('templates/index.html'):
+        return render_template("index.html")
+    else:
+        return html_content
 
 @app.route("/status")
 def get_status():
@@ -139,18 +208,33 @@ def get_status():
     
     data = {"sites": {}}
     all_operational = True
+    current_time = time.time()
     
     for site in sites_data:
-        total_time = site['total_uptime'] + site['total_downtime']
-        uptime_pct = (site['total_uptime'] / total_time * 100) if total_time > 0 else 100
+        # --- Real-time display enhancement ---
+        # Calculate the time since the last check from the background worker
+        time_since_last_db_update = current_time - site['last_change']
+        
+        # Start with the stored values
+        display_uptime = site['total_uptime']
+        display_downtime = site['total_downtime']
+
+        # Add the time since the last update to the current status for a "live" feel
+        if site['status'] == 'Online':
+            display_uptime += time_since_last_db_update
+        elif site['status'] == 'Down':
+            display_downtime += time_since_last_db_update
+        
+        total_time = display_uptime + display_downtime
+        uptime_pct = (display_uptime / total_time * 100) if total_time > 0 else 100
         
         if site['status'] != "Online":
             all_operational = False
             
         data["sites"][site['name']] = {
             "status": site['status'],
-            "uptime": format_duration(site['total_uptime']),
-            "downtime": format_duration(site['total_downtime']),
+            "uptime": format_duration(display_uptime),
+            "downtime": format_duration(display_downtime),
             "uptime_percent": f"{uptime_pct:.3f}%",
             "last_checked": site['last_checked'],
             "response_time_ms": site['response_time_ms']
@@ -180,4 +264,4 @@ if __name__ == "__main__":
     # Start the background checker thread
     threading.Thread(target=check_sites, daemon=True).start()
     # Run the Flask app
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=False) # Debug mode should be False in production

@@ -1,17 +1,18 @@
-# check_interval is in seconds. 1800 seconds = 30 minutes.
+# How often to check the sites, in seconds. 1800 = 30 minutes.
 check_interval: 1800
 
-# Number of history segments to show on the UI.
-# This should match the CSS grid in index.html.
+# How many segments to show in the history bar.
+# This must match the 'grid-cols-48' class and the JavaScript variable in index.html.
 history_segments: 48
 
-# List of sites to monitor.
+# List of sites you want to monitor.
 sites:
   - name: "Game Panel"
-    url: "https://gamep.cloudcrash.shop/"
+    url: "https://gamep.cloudcrash.shop"
   - name: "IN Node"
-    url: "https://ccin1.cloudcrash.shop/"
+    url: "https://www.example.com"
   - name: "SE Node"
-    url: "httppsyour-vps-ip-or-domain"
+    url: "https://ccin1.cloudcrash.shop"
   - name: "Website"
     url: "https://google.com"
+

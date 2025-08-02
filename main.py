@@ -180,4 +180,4 @@ if __name__ == "__main__":
     # Start the background checker thread
     threading.Thread(target=check_sites, daemon=True).start()
     # Run the Flask app
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080, debug=True)

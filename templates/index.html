@@ -1,115 +1,96 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aura Real-Time Uptime Monitor</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>CoramTix Pro Status</title>
+    <link rel="icon" href="https://emoji.gg/assets/emoji/4071-monitoring.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: sans-serif; }
-        .latency { text-align: right; }
-        .status-badge { font-size: 0.9em; font-weight: bold; }
+        body { font-family: 'Inter', sans-serif; }
+        @import url('https://rsms.me/inter/inter.css');
+        .status-up { color: #22c55e; }
+        .status-down { color: #ef4444; }
+        .bg-up { background-color: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); }
+        .bg-down { background-color: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
     </style>
 </head>
-<body>
+<body class="bg-gray-900 text-gray-200">
+    <div class="min-h-screen container mx-auto px-4 py-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white">CoramTix Pro Status</h1>
+            <p id="overall-status" class="text-xl mt-2 text-gray-400 transition-colors duration-500">
+                Loading status...
+            </p>
+        </header>
 
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-                <h1 class="mb-0">Aura Uptime Monitor</h1>
-                <p class="text-muted">A real-time status check of your configured services.</p>
-            </div>
-            <div>
-                <small class="text-muted">Last updated: <span id="last-updated">Never</span></small>
-            </div>
-        </div>
-
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Service Name</th>
-                        <th>URL</th>
-                        <th class="text-center">Status</th>
-                        <th class="text-center">Code</th>
-                        <th class="text-end">Latency (ms)</th>
-                    </tr>
-                </thead>
-                <tbody id="monitor-table-body">
-                    <tr>
-                        <td colspan="5" class="text-center p-4">
-                            <div class="spinner-border" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <footer class="text-center text-muted mt-4">
-            <p>Page will automatically refresh every 15 seconds.</p>
+        <main id="services-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            </main>
+        
+        <footer class="text-center mt-10 text-gray-500 text-sm">
+            <p>Page automatically refreshes every 15 seconds.</p>
+            <p>Powered by a custom Flask monitoring solution.</p>
         </footer>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const tableBody = document.getElementById('monitor-table-body');
-            const lastUpdatedSpan = document.getElementById('last-updated');
+    function formatResponseTime(ms) {
+        if (ms === null || ms < 0) return 'N/A';
+        if (ms < 1000) return `${Math.round(ms)} ms`;
+        return `${(ms / 1000).toFixed(2)} s`;
+    }
 
-            const fetchStatus = async () => {
-                try {
-                    const response = await fetch('/api/status');
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    const data = await response.json();
+    async function updateStatus() {
+        try {
+            const response = await fetch('/status');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
 
-                    // Clear previous content
-                    tableBody.innerHTML = '';
+            // Update Overall Status
+            const overallStatusEl = document.getElementById('overall-status');
+            if (data.overall_status === "All systems operational") {
+                overallStatusEl.innerHTML = `<span class="status-up">✓ All systems operational</span>`;
+            } else {
+                overallStatusEl.innerHTML = `<span class="status-down">✗ Some systems are experiencing issues</span>`;
+            }
 
-                    data.forEach(monitor => {
-                        let statusClass = '';
-                        switch (monitor.status) {
-                            case 'Up':
-                                statusClass = 'bg-success';
-                                break;
-                            case 'Down':
-                                statusClass = 'bg-warning';
-                                break;
-                            case 'Error':
-                                statusClass = 'bg-danger';
-                                break;
-                        }
+            // Update Services Grid
+            const grid = document.getElementById('services-grid');
+            grid.innerHTML = Object.entries(data.sites).map(([name, info]) => {
+                const isOnline = info.status === "Online";
+                const statusClass = isOnline ? 'up' : 'down';
+                const statusIcon = isOnline ? '✓' : '✗';
+                
+                return `
+                <div class="bg-gray-800/50 border rounded-lg p-5 shadow-lg transition-all duration-300 hover:shadow-indigo-500/10 hover:border-gray-600 bg-${statusClass} border-l-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-xl font-semibold text-white">${name}</h2>
+                        <span class="font-bold text-lg status-${statusClass}">${statusIcon} ${info.status}</span>
+                    </div>
+                    <div class="text-sm space-y-2 text-gray-400">
+                        <div class="flex justify-between"><span>Uptime (90d)</span> <span class="font-mono text-gray-200">${info.uptime_percent}</span></div>
+                        <div class="flex justify-between"><span>Total Uptime</span> <span class="font-mono text-gray-200">${info.uptime}</span></div>
+                        <div class="flex justify-between"><span>Total Downtime</span> <span class="font-mono text-gray-200">${info.downtime}</span></div>
+                        <hr class="border-gray-700 my-2">
+                        <div class="flex justify-between"><span>Response Time</span> <span class="font-mono text-gray-200">${formatResponseTime(info.response_time_ms)}</span></div>
+                        <div class="flex justify-between"><span>Last Checked</span> <span class="font-mono text-gray-200">${info.last_checked}</span></div>
+                    </div>
+                    <div class="mt-4"><a href="/badge/${encodeURIComponent(name)}" target="_blank"><img src="/badge/${encodeURIComponent(name)}" alt="Status Badge"></a></div>
+                </div>
+                `;
+            }).join('');
+        } catch (error) {
+            console.error("Failed to fetch status:", error);
+            const overallStatusEl = document.getElementById('overall-status');
+            overallStatusEl.innerHTML = `<span class="status-down">Could not load status data.</span>`;
+        }
+    }
 
-                        const row = `
-                            <tr>
-                                <td><strong>${monitor.name}</strong></td>
-                                <td><a href="${monitor.url}" target="_blank">${monitor.url}</a></td>
-                                <td class="text-center">
-                                    <span class="badge ${statusClass} status-badge">${monitor.status}</span>
-                                </td>
-                                <td class="text-center">${monitor.status_code || 'N/A'}</td>
-                                <td class="text-end">${monitor.latency_ms || 'N/A'}</td>
-                            </tr>
-                        `;
-                        tableBody.innerHTML += row;
-                    });
-                    
-                    lastUpdatedSpan.textContent = new Date().toLocaleTimeString();
-
-                } catch (error) {
-                    console.error("Failed to fetch status:", error);
-                    tableBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load status. Is the backend server running?</td></tr>`;
-                }
-            };
-
-            // Fetch data immediately on page load
-            fetchStatus();
-
-            // Then fetch data every 15 seconds
-            setInterval(fetchStatus, 15000);
-        });
+    setInterval(updateStatus, 15000); // Match this with your config check_interval
+    document.addEventListener('DOMContentLoaded', updateStatus);
     </script>
 </body>
 </html>

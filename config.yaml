@@ -1,21 +1,13 @@
-# Aura Uptime Monitor Configuration
-# Add any website or endpoint you want to monitor in this list.
-#
-# Created on: Saturday, August 2, 2025
-# Location Context: Meraganj, West Bengal, India
+# Check interval in seconds
+check_interval: 15
 
-monitors:
-  - name: "Google Search"
-    url: "https://www.google.com"
-
-  - name: "GitHub"
-    url: "https://www.github.com"
-
-  - name: "West Bengal Govt Portal"
-    url: "https://wb.gov.in/"
-
-  - name: "Known Failing Site (503)"
-    url: "https://httpstat.us/503"
-
-  - name: "Invalid Domain (Error)"
-    url: "https://this-domain-does-not-exist-12345.com"
+# List of sites to monitor
+sites:
+  - name: "Game Panel"
+    url: "https://gamep.cloudcrash.shop/"
+  - name: "EU Node"
+    url: "https://ccin1.cloudcrash.shop/"
+  - name: "SE Node"
+    url: "http://your-vps-ip-or-domain"
+  - name: "Google"
+    url: "https://google.com"

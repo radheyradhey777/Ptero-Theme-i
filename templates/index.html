@@ -1,372 +1,218 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Status Monitor</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+import flask
+from flask import Flask, jsonify, g
+import requests
+import threading
+import time
+import sqlite3
+import yaml
+import os
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+app = Flask(__name__)
+DATABASE = 'status.db'
+CONFIG_FILE = 'config.yaml'
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+def load_config():
+    if not os.path.exists(CONFIG_FILE):
+        default_config = {
+            'check_interval': 60,
+            'sites': [
+                {'name': 'Google', 'url': 'https://www.google.com'},
+                {'name': 'GitHub', 'url': 'https://www.github.com'}
+            ]
         }
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(default_config, f)
+    with open(CONFIG_FILE, 'r') as f:
+        return yaml.safe_load(f)
 
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            color: white;
-        }
+config = load_config()
+SITES = {site['name']: site['url'] for site in config['sites']}
+CHECK_INTERVAL = config['check_interval']
 
-        .header h1 {
-            font-size: 3rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
 
-        .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-        }
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
-        .status-overview {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            backdrop-filter: blur(10px);
-        }
+def init_db():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sites (
+                id INTEGER PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                status TEXT DEFAULT 'Unknown',
+                last_change REAL DEFAULT 0,
+                last_checked TEXT DEFAULT 'Never',
+                total_uptime REAL DEFAULT 0,
+                total_downtime REAL DEFAULT 0
+            )
+        ''')
+        for name, url in SITES.items():
+            cursor.execute("INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", (name, url, time.time()))
+        db.commit()
 
-        .overall-status {
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 20px;
-            padding: 15px;
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
+def format_duration(seconds):
+    seconds = int(seconds)
+    days, rem = divmod(seconds, 86400)
+    hrs, rem = divmod(rem, 3600)
+    mins, secs = divmod(rem, 60)
+    if days > 0:
+        return f"{days}d {hrs}h {mins}m"
+    return f"{hrs}h {mins}m {secs}s"
 
-        .status-operational {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            color: white;
-        }
+def check_sites():
+    while True:
+        with app.app_context():
+            db = get_db()
+            cursor = db.cursor()
+            sites_to_check = cursor.execute("SELECT * FROM sites").fetchall()
+            for site in sites_to_check:
+                current_time = time.time()
+                name = site['name']
+                url = site['url']
+                previous_status = site['status']
+                time_since_last_check = current_time - site['last_change']
+                new_total_uptime = site['total_uptime']
+                new_total_downtime = site['total_downtime']
+                if previous_status == "Online":
+                    new_total_uptime += time_since_last_check
+                elif previous_status == "Down":
+                    new_total_downtime += time_since_last_check
+                try:
+                    res = requests.get(url, timeout=10)
+                    new_status = "Online" if 200 <= res.status_code < 300 else "Down"
+                except requests.exceptions.RequestException:
+                    new_status = "Down"
+                cursor.execute('''
+                    UPDATE sites
+                    SET status = ?, last_change = ?, last_checked = ?, 
+                        total_uptime = ?, total_downtime = ?
+                    WHERE name = ?
+                ''', (new_status, current_time, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
+                      new_total_uptime, new_total_downtime, name))
+            db.commit()
+        time.sleep(CHECK_INTERVAL)
 
-        .status-issues {
-            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
-            color: #d63384;
-        }
-
-        .sites-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 20px;
-        }
-
-        .site-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-            border-left: 5px solid transparent;
-        }
-
-        .site-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-        }
-
-        .site-card.online {
-            border-left-color: #28a745;
-        }
-
-        .site-card.down {
-            border-left-color: #dc3545;
-        }
-
-        .site-card.unknown {
-            border-left-color: #ffc107;
-        }
-
-        .site-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .site-name {
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #333;
-        }
-
-        .status-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-
-        .status-online {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-down {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .status-unknown {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .site-metrics {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-
-        .metric {
-            text-align: center;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-
-        .metric-label {
-            font-size: 0.9rem;
-            color: #6c757d;
-            margin-bottom: 5px;
-        }
-
-        .metric-value {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #333;
-        }
-
-        .uptime-bar {
-            width: 100%;
-            height: 8px;
-            background: #e9ecef;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 15px 0;
-        }
-
-        .uptime-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #28a745, #20c997);
-            transition: width 0.3s ease;
-        }
-
-        .last-checked {
-            text-align: center;
-            color: #6c757d;
-            font-size: 0.9rem;
-            margin-top: 15px;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: white;
-            font-size: 1.2rem;
-        }
-
-        .spinner {
-            border: 3px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top: 3px solid white;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .refresh-info {
-            text-align: center;
-            color: rgba(255,255,255,0.8);
-            margin-top: 30px;
-            font-size: 0.9rem;
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .sites-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .site-metrics {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🚀 System Status Monitor</h1>
-            <p>Real-time monitoring of system availability and performance</p>
+@app.route("/")
+def home():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>CoRamTix Hosting System Status</title>
+        <style>
+            body { font-family: 'Segoe UI', sans-serif; background: #f5f8fb; }
+            .container { max-width: 860px; margin: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 16px rgba(100,120,170,0.08); padding: 30px; }
+            .brand { font-size: 2em; color: #2959d9; font-family: 'Segoe UI Semibold', sans-serif; }
+            .statusbar-container { margin: 28px 0 24px 0; text-align: left;}
+            #statusbar { display: flex; gap: 5px; padding: 6px 0;}
+            .status-block { width: 18px; height: 36px; border-radius: 6px; background: #5a6275; transition: background 0.2s;}
+            .status-block.active { background: #29d366; }
+            h1 { margin-top:0; color: #12356f; }
+            .site { border: 1px solid #eef2f9; padding: 14px; margin-bottom: 16px; border-radius: 7px; }
+            .status-Online { border-left: 7px solid #29d366; }
+            .status-Down { border-left: 7px solid #e63946; }
+            .status-Unknown { border-left: 7px solid #888; }
+            .footer { margin-top: 38px; font-size: 0.93em; color: #9aa; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="brand">CoRamTix Hosting</div>
+            <div class="statusbar-container"><div id="statusbar"></div></div>
+            <h1 id="overall-status">Loading...</h1>
+            <div id="sites-container"></div>
+            <div class="footer">&copy; 2024 CoRamTix Hosting. All Rights Reserved.</div>
         </div>
-
-        <div id="loading" class="loading">
-            <div class="spinner"></div>
-            Loading system status...
-        </div>
-
-        <div id="status-content" style="display: none;">
-            <div class="status-overview">
-                <div id="overall-status" class="overall-status">
-                    <!-- Overall status will be populated here -->
-                </div>
-            </div>
-
-            <div id="sites-container" class="sites-grid">
-                <!-- Site cards will be populated here -->
-            </div>
-        </div>
-
-        <div class="refresh-info">
-            <p>🔄 Auto-refreshes every 30 seconds</p>
-        </div>
-    </div>
-
-    <script>
-        let refreshInterval;
-
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/status');
-                const data = await response.json();
-                updateUI(data);
-            } catch (error) {
-                console.error('Error fetching status:', error);
-                showError();
+        <script>
+            function drawStatusBar(segments, active) {
+                const bar = document.getElementById('statusbar');
+                bar.innerHTML = '';
+                for(let i=0;i<segments;i++) {
+                    const block = document.createElement('div');
+                    block.className = 'status-block' + (i >= (segments-active) ? ' active' : '');
+                    bar.appendChild(block);
+                }
             }
-        }
 
-        function updateUI(data) {
-            // Hide loading and show content
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('status-content').style.display = 'block';
+            function updateStatus() {
+                fetch('/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('overall-status').textContent = data.overall_status;
+                        const total = Object.keys(data.sites).length;
+                        const online = Object.values(data.sites).filter(site => site.status === 'Online').length;
+                        const segments = 20;
+                        const activeBlocks = total === 0 ? 0 : Math.round((online / total) * segments);
+                        drawStatusBar(segments, activeBlocks);
 
-            // Update overall status
-            const overallStatus = document.getElementById('overall-status');
-            overallStatus.textContent = data.overall_status;
-            overallStatus.className = 'overall-status ' + 
-                (data.overall_status.includes('operational') ? 'status-operational' : 'status-issues');
-
-            // Update sites
-            const sitesContainer = document.getElementById('sites-container');
-            sitesContainer.innerHTML = '';
-
-            for (const [name, site] of Object.entries(data.sites)) {
-                const siteCard = createSiteCard(name, site);
-                sitesContainer.appendChild(siteCard);
+                        const container = document.getElementById('sites-container');
+                        container.innerHTML = '';
+                        for (const name in data.sites) {
+                            const site = data.sites[name];
+                            const siteDiv = document.createElement('div');
+                            siteDiv.className = 'site status-' + site.status;
+                            siteDiv.innerHTML = `
+                                <h3>${name} - <span style="color:${site.status === 'Online' ? '#29d366' : '#e63946'}">${site.status}</span></h3>
+                                <p><strong>Uptime:</strong> ${site.uptime_percent}</p>
+                                <p><strong>Total Uptime:</strong> ${site.uptime}</p>
+                                <p><strong>Total Downtime:</strong> ${site.downtime}</p>
+                                <p><em>Last Checked: ${site.last_checked}</em></p>
+                            `;
+                            container.appendChild(siteDiv);
+                        }
+                    });
             }
+            setInterval(updateStatus, 5000);
+            updateStatus();
+        </script>
+    </body>
+    </html>
+    """
+
+@app.route("/status")
+def get_status():
+    db = get_db()
+    cursor = db.cursor()
+    sites_data = cursor.execute("SELECT * FROM sites").fetchall()
+    data = {"sites": {}}
+    all_operational = True
+    current_time = time.time()
+    for site in sites_data:
+        time_since_last_db_update = current_time - site['last_change']
+        display_uptime = site['total_uptime']
+        display_downtime = site['total_downtime']
+        if site['status'] == 'Online':
+            display_uptime += time_since_last_db_update
+        elif site['status'] == 'Down':
+            display_downtime += time_since_last_db_update
+        total_time = display_uptime + display_downtime
+        uptime_pct = (display_uptime / total_time * 100) if total_time > 0 else 100
+        if site['status'] != "Online":
+            all_operational = False
+        data["sites"][site['name']] = {
+            "status": site['status'],
+            "uptime": format_duration(display_uptime),
+            "downtime": format_duration(display_downtime),
+            "uptime_percent": f"{uptime_pct:.3f}%",
+            "last_checked": site['last_checked']
         }
+    data["overall_status"] = "All systems operational" if all_operational else "Some systems are experiencing issues"
+    return jsonify(data)
 
-        function createSiteCard(name, site) {
-            const card = document.createElement('div');
-            card.className = `site-card ${site.status.toLowerCase()}`;
-
-            const uptimePercent = parseFloat(site.uptime_percent);
-            const responseTime = site.response_time_ms >= 0 ? 
-                `${Math.round(site.response_time_ms)}ms` : 'N/A';
-
-            card.innerHTML = `
-                <div class="site-header">
-                    <div class="site-name">${name}</div>
-                    <div class="status-badge status-${site.status.toLowerCase()}">
-                        ${site.status}
-                    </div>
-                </div>
-                
-                <div class="uptime-bar">
-                    <div class="uptime-fill" style="width: ${uptimePercent}%"></div>
-                </div>
-                
-                <div class="site-metrics">
-                    <div class="metric">
-                        <div class="metric-label">Uptime</div>
-                        <div class="metric-value">${site.uptime_percent}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Response Time</div>
-                        <div class="metric-value">${responseTime}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Total Uptime</div>
-                        <div class="metric-value">${site.uptime}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Total Downtime</div>
-                        <div class="metric-value">${site.downtime}</div>
-                    </div>
-                </div>
-                
-                <div class="last-checked">
-                    Last checked: ${site.last_checked}
-                </div>
-            `;
-
-            return card;
-        }
-
-        function showError() {
-            document.getElementById('loading').innerHTML = `
-                <div class="spinner" style="border-top-color: #dc3545;"></div>
-                <p style="color: #dc3545;">Error loading status data. Retrying...</p>
-            `;
-        }
-
-        function startAutoRefresh() {
-            // Clear existing interval if any
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
-            
-            // Set up auto-refresh every 30 seconds
-            refreshInterval = setInterval(fetchStatus, 30000);
-        }
-
-        // Initial load
-        fetchStatus().then(() => {
-            startAutoRefresh();
-        });
-
-        // Refresh when page becomes visible again
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden) {
-                fetchStatus();
-            }
-        });
-    </script>
-</body>
-</html>
+if __name__ == "__main__":
+    init_db()
+    threading.Thread(target=check_sites, daemon=True).start()
+    app.run(host="0.0.0.0", port=8080, debug=False)

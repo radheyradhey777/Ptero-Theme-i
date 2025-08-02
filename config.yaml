@@ -1,18 +1,21 @@
-# How often to check the sites, in seconds. 1800 = 30 minutes.
-check_interval: 1800
+# Aura Uptime Monitor Configuration
+# Add any website or endpoint you want to monitor in this list.
+#
+# Created on: Saturday, August 2, 2025
+# Location Context: Meraganj, West Bengal, India
 
-# How many segments to show in the history bar.
-# This must match the 'grid-cols-48' class and the JavaScript variable in index.html.
-history_segments: 48
+monitors:
+  - name: "Google Search"
+    url: "https://www.google.com"
 
-# List of sites you want to monitor.
-sites:
-  - name: "Game Panel"
-    url: "https://gamep.cloudcrash.shop"
-  - name: "IN Node"
-    url: "https://www.example.com"
-  - name: "SE Node"
-    url: "https://ccin1.cloudcrash.shop"
-  - name: "Website"
-    url: "https://google.com"
+  - name: "GitHub"
+    url: "https://www.github.com"
 
+  - name: "West Bengal Govt Portal"
+    url: "https://wb.gov.in/"
+
+  - name: "Known Failing Site (503)"
+    url: "https://httpstat.us/503"
+
+  - name: "Invalid Domain (Error)"
+    url: "https://this-domain-does-not-exist-12345.com"

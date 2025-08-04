@@ -116,259 +116,98 @@ def check_sites():
 @app.route("/")
 def home():
     return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>CoRamTix Hosting - System Status</title>
-        <style>
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoRamTix Hosting - System Status</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
 
-.status-container {
-    background: rgba(255,255,255,0.99);
-    border-radius: 20px;
-    padding: 40px;
-    box-shadow: 0 24px 40px rgba(37,99,235,0.08), 0 1.5px 6px rgba(0,0,0,0.03);
-    width: 100%;
-    max-width: 800px;
-    text-align: center;
-}
+        .status-container {
+            background: rgba(255,255,255,0.99);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 24px 40px rgba(37,99,235,0.08), 0 1.5px 6px rgba(0,0,0,0.03);
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
 
-.brand {
-    font-size: 2.5rem;
-    font-weight: 700;
-    background: linear-gradient(45deg, #2563eb, #1e40af 80%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 10px;
-    letter-spacing: 1px;
-}
+        .brand {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(45deg, #2563eb, #1e40af 80%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        .subtitle{color:#4266b1;font-size:1.1rem;margin-bottom:36px;font-weight:400;letter-spacing:.2px}
+        .status-bar{display:flex;gap:4px;justify-content:center;align-items:center;padding:20px 0}
+        .status-segment{width:22px;height:40px;border-radius:16px;background:#e5edfd;transition:all .3s;position:relative}
+        .status-segment.active{background:linear-gradient(120deg,#36c5f0 0%,#2563eb 100%);box-shadow:0 0 14px #2563eb33;transform:scaleY(1.1)}
+        .overall-status{font-size:1.7rem;font-weight:600;margin:20px 0 32px 0;color:#183b77;transition:color .3s}
+        .overall-status.operational{color:#36c5f0}
+        .overall-status.issues{color:#ef4444}
+        .services-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;margin:32px 0}
+        .service-card{background:#f7fafe;border-radius:14px;padding:18px;box-shadow:0 4px 12px rgba(37,99,235,.07);border-left:4px solid #e0e7ef;transition:all .2s;text-align:left}
+        .service-card.online{border-left-color:#36c5f0}
+        .service-card.down{border-left-color:#ef4444}
+        .service-card.unknown{border-left-color:#d1d5db}
+        .service-card:hover{box-shadow:0 8px 22px rgba(30,64,175,.13);transform:translateY(-3px) scale(1.01)}
+        .service-name{font-size:1.1rem;font-weight:600;margin-bottom:7px;color:#16325c}
+        .service-status{display:inline-flex;align-items:center;gap:8px;font-weight:500;margin-bottom:10px}
+        .status-dot{width:12px;height:12px;border-radius:50%;background:#e5edfd}
+        .status-dot.online{background:#2563eb;box-shadow:0 0 7px #2563eb55;animation:pulse-blue 2s infinite}
+        .status-dot.down{background:#ef4444;box-shadow:0 0 8px #ef444488;animation:pulse-red 2s infinite}
+        .status-dot.unknown{background:#a0aec0}
+        @keyframes pulse-blue{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.15);opacity:.85}}
+        @keyframes pulse-red{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:.83}}
+        .service-details{font-size:.93rem;color:#384c6f;line-height:1.5}
+        .uptime{font-weight:600;color:#2563eb}
+        .downtime{font-weight:600;color:#ef4444}
+        .last-updated{text-align:center;color:#94a3b8;font-size:.89rem;margin-top:25px;padding-top:16px;border-top:1px solid #dbeafe}
+        .footer{text-align:center;color:#bacdee;font-size:.84rem;margin-top:14px}
+        .summary-stats{display:flex;justify-content:center;gap:34px;margin:14px 0;flex-wrap:wrap}
+        .stat-item{text-align:center}
+        .stat-number{font-size:1.7rem;font-weight:700;color:#1e40af}
+        .stat-number.online{color:#2563eb}
+        .stat-number.down{color:#ef4444}
+        .stat-label{font-size:.95rem;color:#64748b;margin-top:3px}
+        @media(max-width:640px){.status-container{padding:18px}.brand{font-size:1.6rem}.services-grid{grid-template-columns:1fr}.summary-stats{gap:17px}}
+    </style>
+</head>
+<body>
+<div class="status-container">
+    <div class="brand">CoRamTix Hosting</div>
+    <div class="subtitle">System Status Dashboard</div>
+    <div class="status-bar-container">
+        <div class="status-bar" id="statusBar"></div>
+    </div>
+    <div class="overall-status operational" id="overallStatus">
+        Loading system status...
+    </div>
+    <div class="summary-stats" id="summaryStats"></div>
+    <div class="services-grid" id="servicesGrid"></div>
+    <div class="last-updated" id="lastUpdated">
+        Last updated: --
+    </div>
+    <div class="footer">&copy; 2024 CoRamTix Hosting. All Rights Reserved.</div>
+</div>
 
-.subtitle {
-    color: #4266b1;
-    font-size: 1.1rem;
-    margin-bottom: 36px;
-    font-weight: 400;
-    letter-spacing: 0.2px;
-}
-
-.status-bar {
-    display: flex;
-    gap: 4px;
-    justify-content: center;
-    align-items: center;
-    padding: 20px 0;
-}
-
-.status-segment {
-    width: 22px;
-    height: 40px;
-    border-radius: 16px;
-    background: #e5edfd;
-    transition: all 0.3s;
-    position: relative;
-}
-.status-segment.active {
-    background: linear-gradient(120deg, #36c5f0 0%, #2563eb 100%);
-    box-shadow: 0 0 14px #2563eb33;
-    transform: scaleY(1.1);
-}
-
-.overall-status {
-    font-size: 1.7rem;
-    font-weight: 600;
-    margin: 20px 0 32px 0;
-    color: #183b77;
-    transition: color 0.3s;
-}
-
-.overall-status.operational {
-    color: #36c5f0;
-}
-.overall-status.issues {
-    color: #ef4444;
-}
-
-.services-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-    margin: 32px 0;
-}
-
-.service-card {
-    background: #f7fafe;
-    border-radius: 14px;
-    padding: 18px;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
-    border-left: 4px solid #e0e7ef;
-    transition: all 0.2s;
-    text-align: left;
-}
-.service-card.online {
-    border-left-color: #36c5f0;
-}
-.service-card.down {
-    border-left-color: #ef4444;
-}
-.service-card.unknown {
-    border-left-color: #d1d5db;
-}
-.service-card:hover {
-    box-shadow: 0 8px 22px rgba(30,64,175,0.13);
-    transform: translateY(-3px) scale(1.01);
-}
-
-.service-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 7px;
-    color: #16325c;
-}
-
-.service-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-    margin-bottom: 10px;
-}
-
-.status-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #e5edfd;
-}
-.status-dot.online {
-    background: #2563eb;
-    box-shadow: 0 0 7px #2563eb55;
-    animation: pulse-blue 2s infinite;
-}
-.status-dot.down {
-    background: #ef4444;
-    box-shadow: 0 0 8px #ef444488;
-    animation: pulse-red 2s infinite;
-}
-.status-dot.unknown {
-    background: #a0aec0;
-}
-
-@keyframes pulse-blue {
-    0%,100% {transform:scale(1);opacity:1;}
-    50% {transform:scale(1.15);opacity:0.85;}
-}
-@keyframes pulse-red {
-    0%,100% {transform:scale(1);opacity:1;}
-    50% {transform:scale(1.18);opacity:0.83;}
-}
-
-.service-details {
-    font-size: 0.93rem;
-    color: #384c6f;
-    line-height: 1.5;
-}
-
-.uptime {
-    font-weight: 600;
-    color: #2563eb;
-}
-.downtime {
-    font-weight: 600;
-    color: #ef4444;
-}
-
-.last-updated {
-    text-align: center;
-    color: #94a3b8;
-    font-size: 0.89rem;
-    margin-top: 25px;
-    padding-top: 16px;
-    border-top: 1px solid #dbeafe;
-}
-
-.footer {
-    text-align: center;
-    color: #bacdee;
-    font-size: 0.84rem;
-    margin-top: 14px;
-}
-
-.summary-stats {
-    display: flex;
-    justify-content: center;
-    gap: 34px;
-    margin: 14px 0;
-    flex-wrap: wrap;
-}
-
-.stat-item {
-    text-align: center;
-}
-.stat-number {
-    font-size: 1.7rem;
-    font-weight: 700;
-    color: #1e40af;
-}
-.stat-number.online {
-    color: #2563eb;
-}
-.stat-number.down {
-    color: #ef4444;
-}
-.stat-label {
-    font-size: 0.95rem;
-    color: #64748b;
-    margin-top: 3px;
-}
-
-@media (max-width: 640px) {
-    .status-container {
-        padding: 18px;
-    }
-    .brand {font-size: 1.6rem;}
-    .services-grid {grid-template-columns: 1fr;}
-    .summary-stats {gap: 17px;}
-}
-        </style>
-    </head>
-    <body>
-        <div class="status-container">
-            <div class="brand">CoRamTix Hosting</div>
-            <div class="subtitle">System Status Dashboard</div>
-            
-            <div class="status-bar-container">
-                <div class="status-bar" id="statusBar"></div>
-            </div>
-            
-            <div class="overall-status operational" id="overallStatus">
-                Loading system status...
-            </div>
-
-            <div class="summary-stats" id="summaryStats"></div>
-            
-            <div class="services-grid" id="servicesGrid"></div>
-            
-            <div class="last-updated" id="lastUpdated">
-                Last updated: --
-            </div>
-            
-            <div class="footer">&copy; 2024 CoRamTix Hosting. All Rights Reserved.</div>
-        </div>
-
-        <script>
+<script>
 let isLoading = false;
-
 function generateStatusBar(onlineCount, totalCount) {
     const statusBar = document.getElementById('statusBar');
     const totalSegments = 20;
@@ -381,13 +220,11 @@ function generateStatusBar(onlineCount, totalCount) {
         statusBar.appendChild(segment);
     }
 }
-
 function updateOverallStatus(statusText, allOperational) {
     const statusElement = document.getElementById('overallStatus');
     statusElement.textContent = statusText;
     statusElement.className = allOperational ? 'overall-status operational' : 'overall-status issues';
 }
-
 function generateSummaryStats(onlineCount, downCount, totalCount) {
     const summaryStats = document.getElementById('summaryStats');
     summaryStats.innerHTML = `
@@ -405,7 +242,6 @@ function generateSummaryStats(onlineCount, downCount, totalCount) {
         </div>
     `;
 }
-
 function generateServiceCards(sites) {
     const grid = document.getElementById('servicesGrid');
     grid.innerHTML = '';
@@ -432,13 +268,11 @@ function generateServiceCards(sites) {
         grid.appendChild(card);
     }
 }
-
 function updateLastUpdated() {
     const now = new Date();
-    document.getElementById('lastUpdated').textContent = 
+    document.getElementById('lastUpdated').textContent =
         `Last updated: ${now.toLocaleString()}`;
 }
-
 function showError(message) {
     const container = document.querySelector('.status-container');
     const existingError = container.querySelector('.error-message');
@@ -448,19 +282,16 @@ function showError(message) {
     errorDiv.textContent = message;
     container.insertBefore(errorDiv, document.getElementById('servicesGrid'));
 }
-
 function hideError() {
     const existingError = document.querySelector('.error-message');
     if (existingError) existingError.remove();
 }
-
 function setLoadingState(loading) {
     isLoading = loading;
     const container = document.querySelector('.status-container');
     if (loading) container.classList.add('loading');
     else container.classList.remove('loading');
 }
-
 function updateStatus() {
     if (isLoading) return;
     setLoadingState(true);
@@ -491,7 +322,6 @@ function updateStatus() {
             setLoadingState(false);
         });
 }
-
 function initializePlaceholder() {
     generateStatusBar(0, 1);
     document.getElementById('summaryStats').innerHTML = `
@@ -509,14 +339,13 @@ function initializePlaceholder() {
         </div>
     `;
 }
-
 initializePlaceholder();
 updateStatus();
 setInterval(updateStatus, 5000);
 setInterval(updateLastUpdated, 1000);
-        </script>
-    </body>
-    </html>
+</script>
+</body>
+</html>
     """
 
 @app.route("/status")
@@ -577,7 +406,7 @@ if __name__ == "__main__":
     print("🚀 Starting CoRamTix Status System...")
     print(f"📊 Monitoring {len(SITES)} sites")
     print(f"⏱️  Check interval: {CHECK_INTERVAL} seconds")
-    print(f"🌐 Server will be available at: http://localhost:8080")
+    print("🌐 Server will be available at: http://localhost:8080")
     init_db()
     monitoring_thread = threading.Thread(target=check_sites, daemon=True)
     monitoring_thread.start()
@@ -585,7 +414,6 @@ if __name__ == "__main__":
     try:
         app.run(host="0.0.0.0", port=8080, debug=False)
     except KeyboardInterrupt:
-        print("
-⛔ Shutting down CoRamTix Status System...")
+        print("\n⛔ Shutting down CoRamTix Status System...")
     except Exception as e:
         print(f"❌ Error starting server: {e}")

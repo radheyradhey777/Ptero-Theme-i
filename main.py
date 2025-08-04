@@ -13,7 +13,6 @@ CONFIG_FILE = 'config.yaml'
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        # Default monitored sites and check interval (in seconds)
         default_config = {
             'check_interval': 60,
             'sites': [
@@ -65,7 +64,7 @@ def init_db():
         ''')
         for name, url in SITES.items():
             cursor.execute(
-                "INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", 
+                "INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)",
                 (name, url, time.time()))
         db.commit()
 

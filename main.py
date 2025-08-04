@@ -13,6 +13,7 @@ CONFIG_FILE = 'config.yaml'
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
+        # Default monitored sites and check interval (in seconds)
         default_config = {
             'check_interval': 60,
             'sites': [
@@ -63,7 +64,9 @@ def init_db():
             )
         ''')
         for name, url in SITES.items():
-            cursor.execute("INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", (name, url, time.time()))
+            cursor.execute(
+                "INSERT OR IGNORE INTO sites (name, url, last_change) VALUES (?, ?, ?)", 
+                (name, url, time.time()))
         db.commit()
 
 def format_duration(seconds):
@@ -89,15 +92,18 @@ def check_sites():
                 time_since_last_check = current_time - site['last_change']
                 new_total_uptime = site['total_uptime']
                 new_total_downtime = site['total_downtime']
+
                 if previous_status == "Online":
                     new_total_uptime += time_since_last_check
                 elif previous_status == "Down":
                     new_total_downtime += time_since_last_check
+
                 try:
                     res = requests.get(url, timeout=10)
                     new_status = "Online" if 200 <= res.status_code < 300 else "Down"
                 except requests.exceptions.RequestException:
                     new_status = "Down"
+
                 cursor.execute('''
                     UPDATE sites
                     SET status = ?, last_change = ?, last_checked = ?, 
@@ -118,292 +124,223 @@ def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>CoRamTix Hosting - System Status</title>
         <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
 
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 20px;
-            }
+.status-container {
+    background: rgba(255,255,255,0.99);
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 24px 40px rgba(37,99,235,0.08), 0 1.5px 6px rgba(0,0,0,0.03);
+    width: 100%;
+    max-width: 800px;
+    text-align: center;
+}
 
-            .status-container {
-                background: rgba(255, 255, 255, 0.95);
-                backdrop-filter: blur(20px);
-                border-radius: 20px;
-                padding: 40px;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-                width: 100%;
-                max-width: 800px;
-                text-align: center;
-            }
+.brand {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(45deg, #2563eb, #1e40af 80%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+}
 
-            .brand {
-                font-size: 2.5rem;
-                font-weight: 700;
-                background: linear-gradient(45deg, #667eea, #764ba2);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                margin-bottom: 10px;
-            }
+.subtitle {
+    color: #4266b1;
+    font-size: 1.1rem;
+    margin-bottom: 36px;
+    font-weight: 400;
+    letter-spacing: 0.2px;
+}
 
-            .subtitle {
-                color: #666;
-                font-size: 1.1rem;
-                margin-bottom: 40px;
-                font-weight: 400;
-            }
+.status-bar {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+    padding: 20px 0;
+}
 
-            .status-bar-container {
-                margin: 30px 0;
-                padding: 0 20px;
-            }
+.status-segment {
+    width: 22px;
+    height: 40px;
+    border-radius: 16px;
+    background: #e5edfd;
+    transition: all 0.3s;
+    position: relative;
+}
+.status-segment.active {
+    background: linear-gradient(120deg, #36c5f0 0%, #2563eb 100%);
+    box-shadow: 0 0 14px #2563eb33;
+    transform: scaleY(1.1);
+}
 
-            .status-bar {
-                display: flex;
-                gap: 4px;
-                justify-content: center;
-                align-items: center;
-                padding: 20px 0;
-            }
+.overall-status {
+    font-size: 1.7rem;
+    font-weight: 600;
+    margin: 20px 0 32px 0;
+    color: #183b77;
+    transition: color 0.3s;
+}
 
-            .status-segment {
-                width: 20px;
-                height: 40px;
-                border-radius: 20px;
-                background: #e2e8f0;
-                transition: all 0.3s ease;
-                position: relative;
-                overflow: hidden;
-            }
+.overall-status.operational {
+    color: #36c5f0;
+}
+.overall-status.issues {
+    color: #ef4444;
+}
 
-            .status-segment.active {
-                background: linear-gradient(135deg, #10b981, #34d399);
-                box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
-                transform: scaleY(1.1);
-            }
+.services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin: 32px 0;
+}
 
-            .status-segment::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), transparent);
-                opacity: 0;
-                transition: opacity 0.3s ease;
-            }
+.service-card {
+    background: #f7fafe;
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
+    border-left: 4px solid #e0e7ef;
+    transition: all 0.2s;
+    text-align: left;
+}
+.service-card.online {
+    border-left-color: #36c5f0;
+}
+.service-card.down {
+    border-left-color: #ef4444;
+}
+.service-card.unknown {
+    border-left-color: #d1d5db;
+}
+.service-card:hover {
+    box-shadow: 0 8px 22px rgba(30,64,175,0.13);
+    transform: translateY(-3px) scale(1.01);
+}
 
-            .status-segment.active::before {
-                opacity: 1;
-            }
+.service-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 7px;
+    color: #16325c;
+}
 
-            .overall-status {
-                font-size: 1.8rem;
-                font-weight: 600;
-                margin: 30px 0;
-                color: #1f2937;
-            }
+.service-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    margin-bottom: 10px;
+}
 
-            .overall-status.operational {
-                color: #10b981;
-            }
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e5edfd;
+}
+.status-dot.online {
+    background: #2563eb;
+    box-shadow: 0 0 7px #2563eb55;
+    animation: pulse-blue 2s infinite;
+}
+.status-dot.down {
+    background: #ef4444;
+    box-shadow: 0 0 8px #ef444488;
+    animation: pulse-red 2s infinite;
+}
+.status-dot.unknown {
+    background: #a0aec0;
+}
 
-            .overall-status.issues {
-                color: #ef4444;
-            }
+@keyframes pulse-blue {
+    0%,100% {transform:scale(1);opacity:1;}
+    50% {transform:scale(1.15);opacity:0.85;}
+}
+@keyframes pulse-red {
+    0%,100% {transform:scale(1);opacity:1;}
+    50% {transform:scale(1.18);opacity:0.83;}
+}
 
-            .services-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-                gap: 20px;
-                margin: 40px 0;
-            }
+.service-details {
+    font-size: 0.93rem;
+    color: #384c6f;
+    line-height: 1.5;
+}
 
-            .service-card {
-                background: white;
-                border-radius: 12px;
-                padding: 20px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-                border-left: 4px solid #e2e8f0;
-                transition: all 0.3s ease;
-                text-align: left;
-            }
+.uptime {
+    font-weight: 600;
+    color: #2563eb;
+}
+.downtime {
+    font-weight: 600;
+    color: #ef4444;
+}
 
-            .service-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-            }
+.last-updated {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.89rem;
+    margin-top: 25px;
+    padding-top: 16px;
+    border-top: 1px solid #dbeafe;
+}
 
-            .service-card.online {
-                border-left-color: #10b981;
-            }
+.footer {
+    text-align: center;
+    color: #bacdee;
+    font-size: 0.84rem;
+    margin-top: 14px;
+}
 
-            .service-card.down {
-                border-left-color: #ef4444;
-            }
+.summary-stats {
+    display: flex;
+    justify-content: center;
+    gap: 34px;
+    margin: 14px 0;
+    flex-wrap: wrap;
+}
 
-            .service-card.unknown {
-                border-left-color: #9ca3af;
-            }
+.stat-item {
+    text-align: center;
+}
+.stat-number {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #1e40af;
+}
+.stat-number.online {
+    color: #2563eb;
+}
+.stat-number.down {
+    color: #ef4444;
+}
+.stat-label {
+    font-size: 0.95rem;
+    color: #64748b;
+    margin-top: 3px;
+}
 
-            .service-name {
-                font-size: 1.2rem;
-                font-weight: 600;
-                margin-bottom: 8px;
-                color: #1f2937;
-            }
-
-            .service-status {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                font-weight: 500;
-                margin-bottom: 12px;
-            }
-
-            .status-dot {
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                background: #e2e8f0;
-            }
-
-            .status-dot.online {
-                background: #10b981;
-                box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
-                animation: pulse-green 2s infinite;
-            }
-
-            .status-dot.down {
-                background: #ef4444;
-                box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
-                animation: pulse-red 2s infinite;
-            }
-
-            .status-dot.unknown {
-                background: #9ca3af;
-            }
-
-            @keyframes pulse-green {
-                0%, 100% { transform: scale(1); opacity: 1; }
-                50% { transform: scale(1.2); opacity: 0.8; }
-            }
-
-            @keyframes pulse-red {
-                0%, 100% { transform: scale(1); opacity: 1; }
-                50% { transform: scale(1.2); opacity: 0.8; }
-            }
-
-            .service-details {
-                font-size: 0.9rem;
-                color: #6b7280;
-                line-height: 1.6;
-            }
-
-            .service-details div {
-                margin-bottom: 4px;
-            }
-
-            .uptime {
-                font-weight: 600;
-                color: #10b981;
-            }
-
-            .downtime {
-                font-weight: 600;
-                color: #ef4444;
-            }
-
-            .last-updated {
-                text-align: center;
-                color: #9ca3af;
-                font-size: 0.9rem;
-                margin-top: 30px;
-                padding-top: 20px;
-                border-top: 1px solid #e5e7eb;
-            }
-
-            .footer {
-                text-align: center;
-                color: #9ca3af;
-                font-size: 0.85rem;
-                margin-top: 20px;
-            }
-
-            .loading {
-                opacity: 0.6;
-                pointer-events: none;
-            }
-
-            .error-message {
-                background: #fef2f2;
-                border: 1px solid #fecaca;
-                color: #991b1b;
-                padding: 15px;
-                border-radius: 8px;
-                margin: 20px 0;
-                text-align: center;
-            }
-
-            .summary-stats {
-                display: flex;
-                justify-content: center;
-                gap: 30px;
-                margin: 20px 0;
-                flex-wrap: wrap;
-            }
-
-            .stat-item {
-                text-align: center;
-            }
-
-            .stat-number {
-                font-size: 2rem;
-                font-weight: 700;
-                color: #1f2937;
-            }
-
-            .stat-label {
-                font-size: 0.9rem;
-                color: #6b7280;
-                margin-top: 4px;
-            }
-
-            .stat-number.online {
-                color: #10b981;
-            }
-
-            .stat-number.down {
-                color: #ef4444;
-            }
-
-            @media (max-width: 640px) {
-                .status-container {
-                    padding: 20px;
-                }
-                
-                .brand {
-                    font-size: 2rem;
-                }
-                
-                .services-grid {
-                    grid-template-columns: 1fr;
-                }
-                
-                .summary-stats {
-                    gap: 20px;
-                }
-            }
+@media (max-width: 640px) {
+    .status-container {
+        padding: 18px;
+    }
+    .brand {font-size: 1.6rem;}
+    .services-grid {grid-template-columns: 1fr;}
+    .summary-stats {gap: 17px;}
+}
         </style>
     </head>
     <body>
@@ -412,22 +349,16 @@ def home():
             <div class="subtitle">System Status Dashboard</div>
             
             <div class="status-bar-container">
-                <div class="status-bar" id="statusBar">
-                    <!-- Status segments will be generated by JavaScript -->
-                </div>
+                <div class="status-bar" id="statusBar"></div>
             </div>
             
             <div class="overall-status operational" id="overallStatus">
                 Loading system status...
             </div>
 
-            <div class="summary-stats" id="summaryStats">
-                <!-- Summary statistics will be generated by JavaScript -->
-            </div>
+            <div class="summary-stats" id="summaryStats"></div>
             
-            <div class="services-grid" id="servicesGrid">
-                <!-- Service cards will be generated by JavaScript -->
-            </div>
+            <div class="services-grid" id="servicesGrid"></div>
             
             <div class="last-updated" id="lastUpdated">
                 Last updated: --
@@ -437,191 +368,153 @@ def home():
         </div>
 
         <script>
-            let isLoading = false;
+let isLoading = false;
 
-            function generateStatusBar(onlineCount, totalCount) {
-                const statusBar = document.getElementById('statusBar');
-                const totalSegments = 20;
-                const activeSegments = totalCount === 0 ? 0 : Math.round((onlineCount / totalCount) * totalSegments);
-                
-                statusBar.innerHTML = '';
-                
-                for (let i = 0; i < totalSegments; i++) {
-                    const segment = document.createElement('div');
-                    segment.className = 'status-segment';
-                    
-                    if (i < activeSegments) {
-                        segment.classList.add('active');
-                    }
-                    
-                    statusBar.appendChild(segment);
-                }
-            }
+function generateStatusBar(onlineCount, totalCount) {
+    const statusBar = document.getElementById('statusBar');
+    const totalSegments = 20;
+    const activeSegments = (totalCount === 0) ? 0 : Math.round((onlineCount / totalCount) * totalSegments);
+    statusBar.innerHTML = '';
+    for (let i = 0; i < totalSegments; i++) {
+        const segment = document.createElement('div');
+        segment.className = 'status-segment';
+        if (i < activeSegments) segment.classList.add('active');
+        statusBar.appendChild(segment);
+    }
+}
 
-            function updateOverallStatus(statusText, allOperational) {
-                const statusElement = document.getElementById('overallStatus');
-                statusElement.textContent = statusText;
-                statusElement.className = allOperational ? 'overall-status operational' : 'overall-status issues';
-            }
+function updateOverallStatus(statusText, allOperational) {
+    const statusElement = document.getElementById('overallStatus');
+    statusElement.textContent = statusText;
+    statusElement.className = allOperational ? 'overall-status operational' : 'overall-status issues';
+}
 
-            function generateSummaryStats(onlineCount, downCount, totalCount) {
-                const summaryStats = document.getElementById('summaryStats');
-                summaryStats.innerHTML = `
-                    <div class="stat-item">
-                        <div class="stat-number online">${onlineCount}</div>
-                        <div class="stat-label">Online</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number down">${downCount}</div>
-                        <div class="stat-label">Down</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number">${totalCount}</div>
-                        <div class="stat-label">Total Services</div>
-                    </div>
-                `;
-            }
+function generateSummaryStats(onlineCount, downCount, totalCount) {
+    const summaryStats = document.getElementById('summaryStats');
+    summaryStats.innerHTML = `
+        <div class="stat-item">
+            <div class="stat-number online">${onlineCount}</div>
+            <div class="stat-label">Online</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number down">${downCount}</div>
+            <div class="stat-label">Down</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${totalCount}</div>
+            <div class="stat-label">Total Services</div>
+        </div>
+    `;
+}
 
-            function generateServiceCards(sites) {
-                const grid = document.getElementById('servicesGrid');
-                grid.innerHTML = '';
-                
-                for (const name in sites) {
-                    const site = sites[name];
-                    const card = document.createElement('div');
-                    const statusClass = site.status.toLowerCase();
-                    card.className = `service-card ${statusClass}`;
-                    
-                    card.innerHTML = `
-                        <div class="service-name">${name}</div>
-                        <div class="service-status">
-                            <div class="status-dot ${statusClass}"></div>
-                            ${site.status}
-                        </div>
-                        <div class="service-details">
-                            <div>Uptime: <span class="uptime">${site.uptime_percent}</span></div>
-                            <div>Total Uptime: <span class="uptime">${site.uptime}</span></div>
-                            <div>Total Downtime: <span class="downtime">${site.downtime}</span></div>
-                            <div style="font-style: italic; margin-top: 8px; color: #9ca3af;">
-                                Last Checked: ${site.last_checked}
-                            </div>
-                        </div>
-                    `;
-                    
-                    grid.appendChild(card);
-                }
-            }
+function generateServiceCards(sites) {
+    const grid = document.getElementById('servicesGrid');
+    grid.innerHTML = '';
+    for (const name in sites) {
+        const site = sites[name];
+        const card = document.createElement('div');
+        const statusClass = site.status.toLowerCase();
+        card.className = `service-card ${statusClass}`;
+        card.innerHTML = `
+            <div class="service-name">${name}</div>
+            <div class="service-status">
+                <div class="status-dot ${statusClass}"></div>
+                ${site.status}
+            </div>
+            <div class="service-details">
+                <div>Uptime: <span class="uptime">${site.uptime_percent}</span></div>
+                <div>Total Uptime: <span class="uptime">${site.uptime}</span></div>
+                <div>Total Downtime: <span class="downtime">${site.downtime}</span></div>
+                <div style="font-style: italic; margin-top: 8px; color: #9ca3af;">
+                    Last Checked: ${site.last_checked}
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    }
+}
 
-            function updateLastUpdated() {
-                const now = new Date();
-                document.getElementById('lastUpdated').textContent = 
-                    `Last updated: ${now.toLocaleString()}`;
-            }
+function updateLastUpdated() {
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent = 
+        `Last updated: ${now.toLocaleString()}`;
+}
 
-            function showError(message) {
-                const container = document.querySelector('.status-container');
-                const existingError = container.querySelector('.error-message');
-                if (existingError) {
-                    existingError.remove();
-                }
-                
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = message;
-                container.insertBefore(errorDiv, document.getElementById('servicesGrid'));
-            }
+function showError(message) {
+    const container = document.querySelector('.status-container');
+    const existingError = container.querySelector('.error-message');
+    if (existingError) existingError.remove();
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-message';
+    errorDiv.textContent = message;
+    container.insertBefore(errorDiv, document.getElementById('servicesGrid'));
+}
 
-            function hideError() {
-                const existingError = document.querySelector('.error-message');
-                if (existingError) {
-                    existingError.remove();
-                }
-            }
+function hideError() {
+    const existingError = document.querySelector('.error-message');
+    if (existingError) existingError.remove();
+}
 
-            function setLoadingState(loading) {
-                isLoading = loading;
-                const container = document.querySelector('.status-container');
-                if (loading) {
-                    container.classList.add('loading');
-                } else {
-                    container.classList.remove('loading');
-                }
-            }
+function setLoadingState(loading) {
+    isLoading = loading;
+    const container = document.querySelector('.status-container');
+    if (loading) container.classList.add('loading');
+    else container.classList.remove('loading');
+}
 
-            function updateStatus() {
-                if (isLoading) return;
-                
-                setLoadingState(true);
-                
-                fetch('/status')
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        hideError();
-                        
-                        const total = Object.keys(data.sites).length;
-                        const online = Object.values(data.sites).filter(site => site.status === 'Online').length;
-                        const down = Object.values(data.sites).filter(site => site.status === 'Down').length;
-                        const allOperational = data.overall_status === "All systems operational";
-                        
-                        // Update status bar
-                        generateStatusBar(online, total);
-                        
-                        // Update overall status
-                        updateOverallStatus(data.overall_status, allOperational);
-                        
-                        // Update summary stats
-                        generateSummaryStats(online, down, total);
-                        
-                        // Update service cards
-                        generateServiceCards(data.sites);
-                        
-                        // Update timestamp
-                        updateLastUpdated();
-                        
-                        setLoadingState(false);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching status:', error);
-                        showError('Failed to load system status. Retrying...');
-                        document.getElementById('overallStatus').textContent = 'Error loading status';
-                        document.getElementById('overallStatus').className = 'overall-status issues';
-                        setLoadingState(false);
-                    });
-            }
+function updateStatus() {
+    if (isLoading) return;
+    setLoadingState(true);
+    fetch('/status')
+        .then(response => {
+            if (!response.ok)
+                throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            hideError();
+            const total = Object.keys(data.sites).length;
+            const online = Object.values(data.sites).filter(site => site.status === 'Online').length;
+            const down = Object.values(data.sites).filter(site => site.status === 'Down').length;
+            const allOperational = data.overall_status === "All systems operational";
+            generateStatusBar(online, total);
+            updateOverallStatus(data.overall_status, allOperational);
+            generateSummaryStats(online, down, total);
+            generateServiceCards(data.sites);
+            updateLastUpdated();
+            setLoadingState(false);
+        })
+        .catch(error => {
+            console.error('Error fetching status:', error);
+            showError('Failed to load system status. Retrying...');
+            document.getElementById('overallStatus').textContent = 'Error loading status';
+            document.getElementById('overallStatus').className = 'overall-status issues';
+            setLoadingState(false);
+        });
+}
 
-            function initializePlaceholder() {
-                // Show loading state initially
-                generateStatusBar(0, 1);
-                document.getElementById('summaryStats').innerHTML = `
-                    <div class="stat-item">
-                        <div class="stat-number">--</div>
-                        <div class="stat-label">Online</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number">--</div>
-                        <div class="stat-label">Down</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number">--</div>
-                        <div class="stat-label">Total Services</div>
-                    </div>
-                `;
-            }
+function initializePlaceholder() {
+    generateStatusBar(0, 1);
+    document.getElementById('summaryStats').innerHTML = `
+        <div class="stat-item">
+            <div class="stat-number">--</div>
+            <div class="stat-label">Online</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">--</div>
+            <div class="stat-label">Down</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">--</div>
+            <div class="stat-label">Total Services</div>
+        </div>
+    `;
+}
 
-            // Initialize dashboard
-            initializePlaceholder();
-            updateStatus();
-            
-            // Update every 5 seconds (matching your original interval)
-            setInterval(updateStatus, 5000);
-            
-            // Update timestamp every second for real-time feel
-            setInterval(updateLastUpdated, 1000);
+initializePlaceholder();
+updateStatus();
+setInterval(updateStatus, 5000);
+setInterval(updateLastUpdated, 1000);
         </script>
     </body>
     </html>
@@ -635,23 +528,18 @@ def get_status():
     data = {"sites": {}}
     all_operational = True
     current_time = time.time()
-    
     for site in sites_data:
         time_since_last_db_update = current_time - site['last_change']
         display_uptime = site['total_uptime']
         display_downtime = site['total_downtime']
-        
         if site['status'] == 'Online':
             display_uptime += time_since_last_db_update
         elif site['status'] == 'Down':
             display_downtime += time_since_last_db_update
-            
         total_time = display_uptime + display_downtime
         uptime_pct = (display_uptime / total_time * 100) if total_time > 0 else 100
-        
         if site['status'] != "Online":
             all_operational = False
-            
         data["sites"][site['name']] = {
             "status": site['status'],
             "uptime": format_duration(display_uptime),
@@ -659,19 +547,15 @@ def get_status():
             "uptime_percent": f"{uptime_pct:.2f}%",
             "last_checked": site['last_checked']
         }
-    
     data["overall_status"] = "All systems operational" if all_operational else "Some systems are experiencing issues"
     data["timestamp"] = time.time()
-    
     return jsonify(data)
 
 @app.route("/api/sites")
 def get_sites():
-    """API endpoint to get all monitored sites"""
     db = get_db()
     cursor = db.cursor()
     sites_data = cursor.execute("SELECT name, url, status, last_checked FROM sites").fetchall()
-    
     sites = []
     for site in sites_data:
         sites.append({
@@ -680,12 +564,10 @@ def get_sites():
             "status": site['status'],
             "last_checked": site['last_checked']
         })
-    
     return jsonify({"sites": sites})
 
 @app.route("/health")
 def health_check():
-    """Health check endpoint"""
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
@@ -697,18 +579,14 @@ if __name__ == "__main__":
     print(f"📊 Monitoring {len(SITES)} sites")
     print(f"⏱️  Check interval: {CHECK_INTERVAL} seconds")
     print(f"🌐 Server will be available at: http://localhost:8080")
-    
     init_db()
-    
-    # Start the background site checking thread
     monitoring_thread = threading.Thread(target=check_sites, daemon=True)
     monitoring_thread.start()
     print("✅ Background monitoring started")
-    
-    # Start the Flask app
     try:
         app.run(host="0.0.0.0", port=8080, debug=False)
     except KeyboardInterrupt:
-        print("\n⛔ Shutting down CoRamTix Status System...")
+        print("
+⛔ Shutting down CoRamTix Status System...")
     except Exception as e:
         print(f"❌ Error starting server: {e}")

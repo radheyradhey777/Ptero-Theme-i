@@ -131,6 +131,7 @@ def home():
             align-items: center;
             justify-content: center;
             padding: 20px;
+            margin: 0;
         }
 
         .status-container {
@@ -178,13 +179,34 @@ def home():
         .uptime{font-weight:600;color:#2563eb}
         .downtime{font-weight:600;color:#ef4444}
         .last-updated{text-align:center;color:#94a3b8;font-size:.89rem;margin-top:25px;padding-top:16px;border-top:1px solid #dbeafe}
-        .footer{text-align:center;color:#bacdee;font-size:.84rem;margin-top:14px}
         .summary-stats{display:flex;justify-content:center;gap:34px;margin:14px 0;flex-wrap:wrap}
         .stat-item{text-align:center}
         .stat-number{font-size:1.7rem;font-weight:700;color:#1e40af}
         .stat-number.online{color:#2563eb}
         .stat-number.down{color:#ef4444}
         .stat-label{font-size:.95rem;color:#64748b;margin-top:3px}
+        
+        .footer { text-align: center; margin-top: 24px; }
+        .discord-button {
+            display: inline-block;
+            background-color: #5865F2; /* Discord's Brand Color */
+            color: #ffffff;
+            padding: 12px 22px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 0 4px 10px rgba(88, 101, 242, 0.3);
+        }
+        .discord-button:hover {
+            background-color: #4752C4;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 14px rgba(88, 101, 242, 0.35);
+        }
+        .copyright { font-size: .84rem; color: #bacdee; }
+
         @media(max-width:640px){.status-container{padding:18px}.brand{font-size:1.6rem}.services-grid{grid-template-columns:1fr}.summary-stats{gap:17px}}
     </style>
 </head>
@@ -203,7 +225,12 @@ def home():
     <div class="last-updated" id="lastUpdated">
         Last updated: --
     </div>
-    <div class="footer">&copy; 2024 CoRamTix Hosting. All Rights Reserved.</div>
+    <div class="footer">
+        <a href="https://discord.gg/UWhcwAUdN6" target="_blank" rel="noopener noreferrer" class="discord-button">
+            Join us on Discord
+        </a>
+        <div class="copyright">&copy; 2025 CoRamTix Hosting. All Rights Reserved.</div>
+    </div>
 </div>
 
 <script>
